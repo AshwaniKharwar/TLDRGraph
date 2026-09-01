@@ -755,7 +755,7 @@ def test_query_still_accepts_top_k_and_path(loop_repo):
     assert result.exit_code == 0, result.output
 
 
-def test_query_defaults_to_five_results_and_embeddings_on(monkeypatch, tmp_path):
+def test_query_defaults_to_ten_results_and_embeddings_on(monkeypatch, tmp_path):
     captured = {}
 
     class FakeLoader:
@@ -784,7 +784,7 @@ def test_query_defaults_to_five_results_and_embeddings_on(monkeypatch, tmp_path)
     )
 
     assert result.exit_code == 0, result.output
-    assert captured == {"embeddings": "on", "top_k": 5}
+    assert captured == {"embeddings": "on", "top_k": 10}
 
     captured.clear()
     result = CliRunner().invoke(
@@ -800,7 +800,7 @@ def test_query_help_displays_top_k_default():
     result = CliRunner().invoke(cli, ["query", "--help"])
     assert result.exit_code == 0, result.output
     assert "--top-k" in result.output
-    assert "default: 5" in result.output
+    assert "default: 10" in result.output
 
 
 @pytest.mark.parametrize(

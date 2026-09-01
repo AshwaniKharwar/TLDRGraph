@@ -352,6 +352,20 @@ def test_query_flow_keeps_the_keys_cli_consumes(engine):
             assert key in res
 
 
+def test_query_flow_defaults_to_shared_top_k():
+    captured = {}
+
+    class CapturingStore:
+        def search(self, query, top_k):
+            captured["query"] = query
+            captured["top_k"] = top_k
+            return []
+
+    engine = FlowEngine(nx.DiGraph(), CapturingStore())
+    assert engine.query_flow("DeskView") == []
+    assert captured == {"query": "DeskView", "top_k": fe.DEFAULT_TOP_K}
+
+
 # --------------------------------------------------------------------------- #
 # Public shape / bridge relation wiring
 # --------------------------------------------------------------------------- #

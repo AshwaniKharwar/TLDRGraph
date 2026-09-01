@@ -31,7 +31,7 @@ from .flow_traversal import (
 )
 from .hierarchy import is_test_node
 from .layers import get_registry, layer_id_of
-from .vector_store import LocalVectorStore
+from .vector_store import DEFAULT_TOP_K, LocalVectorStore
 
 
 class FlowEngine:
@@ -163,7 +163,7 @@ class FlowEngine:
             result.update(unreachable)
         return result
 
-    def query_flow(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def query_flow(self, query_text: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
         """Hybrid semantic search + downstream flow expansion."""
         matches = self.vector_store.search(query_text, top_k=top_k)
         results = []

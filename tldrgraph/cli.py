@@ -180,7 +180,7 @@ def visualizer_cmd(path, serve, port, open_browser):
 
 @cli.command()
 @click.argument("query_text")
-@click.option("--top-k", default=5, show_default=True, help="Number of flow candidates to return")
+@click.option("--top-k", default=vs_mod.DEFAULT_TOP_K, show_default=True, help="Number of flow candidates to return")
 @click.option("--path", default=".", help="Repository root path")
 @embeddings_option
 def query(query_text, top_k, path, embeddings):
