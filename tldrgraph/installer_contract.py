@@ -61,6 +61,8 @@ written out in full."""
 _RULES_SHORT = """- **Read the source file before writing an intent.** You have the repo open -- that is
   the entire reason this path exists. An intent paraphrased from the symbol name is worse
   than none, because it poisons semantic search with confident-sounding noise.
+- **Write every intent in 2-3 complete sentences.** Cover what the symbol does, why it
+  exists, and its source-backed behavior; Markdown headings and list markers do not count.
 - **Never invent `fields` or `calls`. Omit what you cannot verify in the code.** An empty
   list is a correct answer; a wrong `calls` entry becomes a real, wrong edge in the graph.
 - **`calls` are resolved with 2-tier precision.** Exact symbol names
@@ -75,7 +77,7 @@ _RESPONSE_SCHEMA = """```yaml
 - id: "<node id copied verbatim from the request>"
   intent: |
     ### Summary / Role in Markdown
-    What this symbol does, why it exists, and execution logic.
+    Explain what this symbol does and why it exists. Describe its source-backed execution logic.
   input_fields:
     - caseId
     - remarks
@@ -125,7 +127,7 @@ A JSON array of objects -- nothing else, no markdown fence, no commentary:
 {response_schema}
 
 - `id` (**required**) - the node id, verbatim from the request.
-- `intent` - 1-2 sentences of plain English; this is what semantic search matches.
+- `intent` - 2-3 complete sentences of plain English; this is what semantic search matches.
 - `fields` - the form fields / API params / DB columns actually handled.
 - `calls` - the downstream APIs / services / DB tables this symbol reaches.
 

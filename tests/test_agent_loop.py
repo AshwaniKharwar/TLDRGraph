@@ -37,6 +37,7 @@ from tldrgraph.cli import (
     coerce_enrichment_items,
     compute_degrees,
 )
+from tldrgraph.intent_quality import intent_sentence_count
 
 
 # --------------------------------------------------------------------------- #
@@ -274,6 +275,21 @@ def test_apply_without_any_response_file_fails_with_guidance(run):
 ])
 def test_coerce_enrichment_items_accepts_array_and_wrappers(payload, expected):
     assert len(coerce_enrichment_items(payload)) == expected
+
+
+def test_intent_sentence_count_ignores_markdown_markers():
+    intent = "### Role\n1. Reads source state.\n- Returns the computed result!"
+    assert intent_sentence_count(intent) == 2
+
+
+@pytest.mark.parametrize("intent, expected", [
+    ("Reads source state. Returns the computed result.", 2),
+    ("Reads source state. Validates the request. Returns the computed result.", 3),
+    ("Reads source state.", 1),
+    ("Reads source state. Validates the request. Calls a service. Returns the computed result.", 4),
+])
+def test_intent_sentence_count_handles_recommended_range(intent, expected):
+    assert intent_sentence_count(intent) == expected
 
 
 # --------------------------------------------------------------------------- #
@@ -970,10 +986,23 @@ def test_heuristic_intents_still_count_as_candidates():
 def test_apply_stamps_agent_provenance(run, loop_repo, state):
     run("queue-enrichment", "--limit", "1")
     nid = state(REQUEST_FILENAME)["nodes"][0]["id"]
-    _write_response(loop_repo, [{"id": nid, "intent": "Read from the source file."}])
+    _write_response(loop_repo, [{"id": nid, "intent": "Reads the source file. Records its verified role."}])
     run("apply-enrichment")
 
     node = next(n for n in _snapshot(loop_repo)["nodes"] if n["id"] == nid)
+    assert node["enrichment_source"] == cli_module.AGENT_ENRICHMENT_SOURCE
+
+
+def test_apply_warns_for_out_of_range_intent_but_persists_it(run, loop_repo, state):
+    run("queue-enrichment", "--limit", "1")
+    nid = state(REQUEST_FILENAME)["nodes"][0]["id"]
+    _write_response(loop_repo, [{"id": nid, "intent": "Only one sentence."}])
+
+    result = run("apply-enrichment")
+
+    assert "outside the recommended 2-3 sentences" in result.output
+    node = next(n for n in _snapshot(loop_repo)["nodes"] if n["id"] == nid)
+    assert node["intent"] == "Only one sentence."
     assert node["enrichment_source"] == cli_module.AGENT_ENRICHMENT_SOURCE
 
 

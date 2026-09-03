@@ -55,7 +55,6 @@ STATUS_NEEDS_CONFIRMATION = "needs_confirmation"
 STATUS_NEEDS_ENRICHMENT = "needs_enrichment"
 STATUS_NEEDS_EMBEDDINGS = "needs_embeddings"
 APPLIED_RESPONSE_FILENAME = "enrichment_response.applied.yaml"
-
 @contextlib.contextmanager
 def stdout_to_stderr_if(active: bool):
     if not active:
@@ -170,6 +169,7 @@ def _run_agent_cli_enrichment(
     retry = ["Run `tldrgraph init --yes` to continue."] if rem or embedding_error else []
     emit_status(status, "embeddings" if embedding_error else "enrichment", [
         f"Enriched {totals['applied']} node(s) in {totals['batches']} batch(es); {totals['bridges']} bridge edge(s).",
+        f"⚠️  {totals['intent_length_violations']} intent(s) were outside the recommended 2-3 sentences." if totals["intent_length_violations"] else "All applied intents met the recommended 2-3 sentence length.",
         f"{rem} still un-enriched." if rem else "Nothing left to enrich.",
         f"Dense embeddings could not be completed: {embedding_error}" if embedding_error else _embedding_summary(loader),
     ] + retry,

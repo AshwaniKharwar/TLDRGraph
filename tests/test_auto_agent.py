@@ -290,7 +290,7 @@ def _fake_answer(prompt: str) -> str:
     return json.dumps([
         {
             "id": node["id"],
-            "intent": f"Reads and returns the {node['label']} result.",
+            "intent": f"Reads the {node['label']} result from the source. Returns that result to its caller.",
             "input_fields": ["alpha"],
             "output_fields": ["beta"],
             "calls": [],
@@ -575,6 +575,34 @@ def test_agent_cli_runs_the_whole_loop_when_asked(monkeypatch, cli_repo, agent_a
     assert "status: done" in res.output
     snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
     assert any(n.get("enrichment_source") == "agent" for n in snapshot["nodes"])
+
+
+def test_agent_cli_reports_short_intents_without_stopping(monkeypatch, cli_repo, agent_allowed):
+    def _short_intents(prompt):
+        if not _is_enrichment_prompt(prompt):
+            return json.dumps(VALID_LAYER_SET)
+        start = prompt.index("Nodes (")
+        nodes = json.loads(prompt[prompt.index("[", start):])
+        return json.dumps([{"id": node["id"], "intent": "Only one sentence."} for node in nodes])
+
+    _stub_agent_cli(monkeypatch, answer=_short_intents)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+
+    assert res.exit_code == 0, res.output
+    assert "outside the recommended 2-3 sentences" in res.output
+    snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
+    assert any(n.get("intent") == "Only one sentence." for n in snapshot["nodes"])
+
+
+def test_generated_enrichment_prompts_require_two_to_three_sentences(cli_repo):
+    from tldrgraph.cli_agent_loop import build_agent_enrichment_prompt
+    from tldrgraph.cli_enrichment import enrichment_instructions
+    from tldrgraph.llm_enricher import build_system_prompt
+
+    prompt = build_agent_enrichment_prompt(str(cli_repo), [{"id": "node"}])
+    assert "2-3 complete sentences" in prompt
+    assert any("2-3 complete sentences" in line for line in enrichment_instructions())
+    assert "2-3 sentence" in build_system_prompt()
 
 
 def test_agent_cli_failure_does_not_lose_the_graph(monkeypatch, cli_repo, agent_allowed):

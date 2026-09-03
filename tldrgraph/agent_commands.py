@@ -237,6 +237,10 @@ Do not decide for them.
   calls: [ApplicationsService, pension_cases]
 ```
 
+Every `intent` must contain **2-3 complete sentences** covering what the symbol does,
+why it exists, and its source-backed behavior. Markdown headings and list markers do not
+count as sentences.
+
 4. Run `tldrgraph init` again. Approval is already saved. If another
    `needs_enrichment` batch appears, process it immediately and repeat this loop
    without asking the user again. Continue until `status: done`.
