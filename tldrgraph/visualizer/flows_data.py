@@ -247,9 +247,8 @@ def extract_visualizer_workflows(
     graph: nx.DiGraph,
     nodes_by_id: Dict[str, Dict[str, Any]],
     sources: SourceIndex,
-    max_workflows: int = 20,
 ) -> List[Dict[str, Any]]:
-    """Workflows for this repository: the curated ones first, then what we find.
+    """Workflows for this repository: curated ones first, then every discovery.
 
     The blueprints describe TLDRGraph's own journeys, so on any other repository
     they resolve to nothing and are dropped. Discovery then reads the call graph
@@ -262,21 +261,17 @@ def extract_visualizer_workflows(
         wf = _build_curated_workflow(bp, graph, nodes_by_id, sources)
         # A blueprint that barely matches is describing a different codebase.
         # Half its steps resolving is the line: a foreign repo scores near zero.
-        if wf and _resolved_ratio(wf["steps"], nodes_by_id) >= 0.5 and len(workflows) < max_workflows:
+        if wf and _resolved_ratio(wf["steps"], nodes_by_id) >= 0.5:
             workflows.append(wf)
 
-    if len(workflows) < max_workflows:
-        def format_step(node_id: str, step_number: int) -> Dict[str, Any]:
-            return _format_step_record(node_id, graph, nodes_by_id, sources, step_number, "")
+    def format_step(node_id: str, step_number: int) -> Dict[str, Any]:
+        return _format_step_record(node_id, graph, nodes_by_id, sources, step_number, "")
 
-        def collect_support(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            return _collect_support_nodes(graph, nodes_by_id, steps)
+    def collect_support(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return _collect_support_nodes(graph, nodes_by_id, steps)
 
-        found = discover_workflows(
-            graph, nodes_by_id, format_step, collect_support,
-            limit=max_workflows - len(workflows),
-        )
-        taken = {w["root_id"] for w in workflows}
-        workflows.extend(w for w in found if w["root_id"] not in taken)
+    found = discover_workflows(graph, nodes_by_id, format_step, collect_support)
+    taken = {w["root_id"] for w in workflows}
+    workflows.extend(w for w in found if w["root_id"] not in taken)
 
     return workflows

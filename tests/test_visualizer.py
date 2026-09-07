@@ -116,3 +116,98 @@ def test_workflows_payload_structure(mini_repo):
             assert "layer" in s
             assert "node_id" in s
 
+
+def test_workflow_extraction_is_not_capped_at_twenty(monkeypatch):
+    """Every distinct discovered journey is retained after curated workflows."""
+    import networkx as nx
+    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+
+    graph = nx.DiGraph()
+    nodes_by_id = {}
+    for index in range(21):
+        root = f"root_{index}"
+        service = f"service_{index}"
+        store = f"store_{index}"
+        for node_id, label, path in (
+            (root, f"handleOrder{index}()", f"src/routes/orders_{index}.py"),
+            (service, f"processOrder{index}()", f"src/services/orders_{index}.py"),
+            (store, f"saveOrder{index}()", f"src/data/orders_{index}.py"),
+        ):
+            nodes_by_id[node_id] = {
+                "label": label, "file": path, "layer_id": "app",
+                "layer": "Application", "is_test": False,
+            }
+            graph.add_node(node_id, label=label, file=path)
+        graph.add_edge(root, service, relation="calls")
+        graph.add_edge(root, store, relation="calls")
+        graph.add_edge(service, store, relation="calls")
+
+    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
+    workflows = extract_visualizer_workflows(graph, nodes_by_id, sources=None)  # type: ignore[arg-type]
+
+    assert len(workflows) == 21
+
+
+def test_next_root_page_is_a_workflow_entry_with_one_component_edge():
+    """``src/app/page.tsx`` must not be lost because it is a thin page wrapper."""
+    import networkx as nx
+    from tldrgraph.visualizer.flows_discover import discover_workflows, rank_entry_points
+
+    graph = nx.DiGraph()
+    nodes = {
+        "home": {
+            "label": "Projects()", "file": "src/app/page.tsx", "layer_id": "ui",
+            "layer": "UI", "is_test": False,
+        },
+        "projects": {
+            "label": "ProjectsPage()", "file": "src/app/projects/components/ProjectsPage.tsx",
+            "layer_id": "ui", "layer": "UI", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("home", "projects", relation="calls")
+
+    assert rank_entry_points(graph, nodes) == [("home", "Web request")]
+
+    def format_step(node_id, step_number):
+        node = nodes[node_id]
+        return {"node_id": node_id, "step_number": step_number, **node}
+
+    workflows = discover_workflows(graph, nodes, format_step, lambda steps: [])
+
+    assert len(workflows) == 1
+    assert [step["node_id"] for step in workflows[0]["steps"]] == ["home", "projects"]
+
+
+def test_two_step_discovered_workflow_is_retained():
+    """A short but real entry-to-service journey should still appear."""
+    import networkx as nx
+    from tldrgraph.visualizer.flows_discover import discover_workflows
+
+    graph = nx.DiGraph()
+    nodes = {
+        "handler": {
+            "label": "handleInvite()", "file": "src/routes/invite.py", "layer_id": "api",
+            "layer": "API", "is_test": False,
+        },
+        "service": {
+            "label": "sendInvite()", "file": "src/services/invite.py", "layer_id": "service",
+            "layer": "Service", "is_test": False,
+        },
+        "audit": {
+            "label": "recordInvite()", "file": "src/audit/invite.py", "layer_id": "data",
+            "layer": "Data", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("handler", "service", relation="calls")
+    graph.add_edge("handler", "audit", relation="calls")
+
+    def format_step(node_id, step_number):
+        node = nodes[node_id]
+        return {"node_id": node_id, "step_number": step_number, **node}
+
+    workflows = discover_workflows(graph, nodes, format_step, lambda steps: [])
+
+    assert len(workflows) == 1
+    assert [step["node_id"] for step in workflows[0]["steps"]] == ["handler", "service"]

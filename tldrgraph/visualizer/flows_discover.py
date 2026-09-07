@@ -19,12 +19,14 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import networkx as nx
 
 MAX_STEPS = 7
-MIN_STEPS = 3
+MIN_STEPS = 2
 
 # Files where a request, a command or a page starts. Ordered by how strongly
 # each one signals an entry point.
 ENTRY_PATTERNS: Tuple[Tuple[str, str, int], ...] = (
-    (r"(^|/)(app|pages)/.*/(route|page)\.(t|j)sx?$", "Web request", 6),
+    # ``app/page.tsx`` is the App Router's home page; the optional directory
+    # segment also covers route groups, dynamic segments, and nested pages.
+    (r"(^|/)(app|pages)(?:/.+)?/(route|page)\.(t|j)sx?$", "Web request", 6),
     (r"\.controller\.(t|j)s$", "API request", 6),
     (r"(^|/)(routes?|controllers?|handlers?|endpoints?)/", "API request", 5),
     (r"(^|/)(cli|cmd|commands?)/", "Command line", 5),
@@ -49,6 +51,12 @@ SKIP_DIRS = ("tests/", "test/", "spec/", "__tests__/", "benchmarks/", "node_modu
 def _is_candidate_file(file_path: str) -> bool:
     path = (file_path or "").replace("\\", "/").lower()
     return bool(path) and not any(part in path for part in SKIP_DIRS)
+
+
+def _is_next_page_file(file_path: str) -> bool:
+    """Whether a file is a Next.js App Router page, including ``app/page``."""
+    path = (file_path or "").replace("\\", "/")
+    return bool(re.search(r"(^|/)app(?:/.+)?/page\.(t|j)sx?$", path, re.IGNORECASE))
 
 
 def _entry_score(node: Dict[str, Any]) -> Tuple[int, str]:
@@ -85,7 +93,7 @@ def _module_of(file_path: str) -> str:
 def rank_entry_points(
     graph: nx.DiGraph,
     nodes_by_id: Dict[str, Dict[str, Any]],
-    limit: int,
+    limit: Optional[int] = None,
 ) -> List[Tuple[str, str]]:
     """The most promising starting points, best first, as (node_id, category)."""
     scored: List[Tuple[float, str, str]] = []
@@ -101,7 +109,11 @@ def rank_entry_points(
         in_degree = graph.in_degree(node_id)
         if signal == 0 and in_degree > 0:
             continue                       # something calls it, so it is not a start
-        if out_degree < 2:
+        # A page can legitimately be a thin route wrapper that renders one
+        # feature component.  Requiring two edges hides the home page and many
+        # small App Router pages before their component's own flow is explored.
+        minimum_edges = 1 if _is_next_page_file(node.get("file") or "") else 2
+        if out_degree < minimum_edges:
             continue                       # nothing downstream to show
 
         # Prefer a strong entry signal, then reach, then being called by nothing.
@@ -109,7 +121,8 @@ def rank_entry_points(
         scored.append((weight, node_id, category or "Process"))
 
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return [(node_id, category) for _, node_id, category in scored[:limit]]
+    ranked = [(node_id, category) for _, node_id, category in scored]
+    return ranked if limit is None else ranked[:limit]
 
 
 def _next_step(
@@ -171,20 +184,28 @@ def discover_workflows(
     nodes_by_id: Dict[str, Dict[str, Any]],
     format_step: Callable[..., Dict[str, Any]],
     collect_support: Callable[..., List[Dict[str, Any]]],
-    limit: int = 12,
+    limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Finds the journeys in a repository nobody has described by hand."""
+    """Finds every distinct journey in a repository nobody has described by hand.
+
+    ``limit`` remains available for callers that explicitly want a smaller
+    result, but visualizer generation deliberately leaves it unset.
+    """
     workflows: List[Dict[str, Any]] = []
     claimed: Set[str] = set()
 
-    for root, category in rank_entry_points(graph, nodes_by_id, limit * 3):
-        if len(workflows) >= limit:
+    candidate_limit = limit * 3 if limit is not None else None
+    for root, category in rank_entry_points(graph, nodes_by_id, candidate_limit):
+        if limit is not None and len(workflows) >= limit:
             break
         if root in claimed:
             continue
 
         chain = _walk_steps(graph, root, nodes_by_id)
-        if len(chain) < MIN_STEPS:
+        # A thin App Router page and its feature component is still a useful
+        # visible journey, even when static analysis cannot reach deeper.
+        minimum_steps = 2 if _is_next_page_file(nodes_by_id[root].get("file") or "") else MIN_STEPS
+        if len(chain) < minimum_steps:
             continue
         # Two journeys that mostly retrace each other are one journey.
         if len(set(chain) & claimed) > len(chain) // 2:
