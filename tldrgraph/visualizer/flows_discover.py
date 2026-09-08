@@ -74,6 +74,31 @@ def _has_route_link(graph: nx.DiGraph, node_id: str) -> bool:
     )
 
 
+def _reaches_route_link(
+    graph: nx.DiGraph,
+    root: str,
+    max_depth: int = 2,
+) -> bool:
+    """Whether a frontend entry reaches an API boundary through UI/API helpers."""
+    queue: List[Tuple[str, int]] = [(root, 0)]
+    visited = {root}
+
+    while queue:
+        current, depth = queue.pop(0)
+        if depth > 0 and _has_route_link(graph, current):
+            return True
+        if depth >= max_depth:
+            continue
+        for _, target, data in graph.out_edges(current, data=True):
+            if target in visited:
+                continue
+            if data.get("relation") in ("contains", "rationale_for", "imports", "imports_from"):
+                continue
+            visited.add(target)
+            queue.append((target, depth + 1))
+    return False
+
+
 def _entry_score(node: Dict[str, Any]) -> Tuple[int, str]:
     """How strongly this symbol looks like a place work begins, and why."""
     file_path = (node.get("file") or "").replace("\\", "/")
@@ -120,8 +145,12 @@ def rank_entry_points(
             continue
 
         signal, category = _entry_score(node)
-        if _is_frontend_file(node.get("file") or "") and _has_route_link(graph, node_id):
-            signal, category = max(signal, 7), "Feature flow"
+        file_path = node.get("file") or ""
+        if _is_frontend_file(file_path):
+            if _has_route_link(graph, node_id):
+                signal, category = max(signal, 7), "Feature flow"
+            elif not _is_next_page_file(file_path) and _reaches_route_link(graph, node_id):
+                signal, category = max(signal, 8), "Feature flow"
         out_degree = graph.out_degree(node_id)
         in_degree = graph.in_degree(node_id)
         if signal == 0 and in_degree > 0:

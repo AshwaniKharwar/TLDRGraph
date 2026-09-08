@@ -290,6 +290,46 @@ def test_route_linked_frontend_component_can_start_a_feature_flow():
     assert [step["node_id"] for step in hook_flow["steps"]] == ["hook", "endpoint"]
 
 
+def test_frontend_component_beats_api_wrapper_as_feature_flow_root():
+    import networkx as nx
+    from tldrgraph.visualizer.flows_discover import discover_workflows, rank_entry_points
+
+    graph = nx.DiGraph()
+    nodes = {
+        "prompt": {
+            "label": "ProjectPromptInterface()", "file": "frontend/src/app/projects/components/ProjectPromptInterface.tsx",
+            "layer_id": "frontend_experience", "layer": "Frontend Experience", "is_test": False,
+        },
+        "api": {
+            "label": "createContainer()", "file": "frontend/src/services/api.ts",
+            "layer_id": "client_integrations", "layer": "Client API & Integrations", "is_test": False,
+        },
+        "endpoint": {
+            "label": "POST /containers/create", "file": "backend/src/routes/containers.ts",
+            "layer_id": "api_workflows", "layer": "API Workflows", "is_test": False,
+        },
+        "handler": {
+            "label": "POST /containers/create handler", "file": "backend/src/routes/containers.ts",
+            "layer_id": "api_workflows", "layer": "API Workflows", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("prompt", "api", relation="calls")
+    graph.add_edge("api", "endpoint", relation="calls_endpoint")
+    graph.add_edge("endpoint", "handler", relation="handled_by")
+
+    def format_step(node_id, step_number):
+        node = nodes[node_id]
+        return {"node_id": node_id, "step_number": step_number, **node}
+
+    assert rank_entry_points(graph, nodes)[0] == ("prompt", "Feature flow")
+
+    workflows = discover_workflows(graph, nodes, format_step, lambda steps: [])
+
+    assert workflows[0]["root_id"] == "prompt"
+    assert [step["node_id"] for step in workflows[0]["steps"]] == ["prompt", "api", "endpoint", "handler"]
+
+
 def test_visualizer_keeps_only_complete_frontend_to_backend_flows(monkeypatch):
     import networkx as nx
     from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
