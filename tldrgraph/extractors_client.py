@@ -31,7 +31,7 @@ _FETCH_CALL_RE = re.compile(
 
 _FETCH_WRAPPER_RE = re.compile(
     r"(?<![\w.])(?P<name>fetchApi|fetchWithAuth|fetchAuthenticated|fetchJson|apiFetch|authorizedFetch)"
-    r"\s*\(\s*(?P<quote>['\"`])(?P<first>[^'\"`\n]*)(?P=quote)"
+    r"\s*(?:<[^;]*?>\s*)?\(\s*(?P<quote>['\"`])(?P<first>[^'\"`\n]*)(?P=quote)"
 )
 
 _FETCH_METHOD_RE = re.compile(r"method\s*:\s*['\"`](?P<method>[A-Za-z]+)['\"`]")
@@ -152,7 +152,7 @@ def extract_frontend_calls(file_path: str, content: str) -> List[Dict[str, Any]]
 def collect_frontend_calls(root_dir: str) -> List[Dict[str, Any]]:
     calls: List[Dict[str, Any]] = []
     for relative, content in iter_source_files(root_dir):
-        if "api." not in content and "fetch(" not in content and "fetchApi(" not in content and "fetchWithAuth(" not in content:
+        if "api." not in content and "fetch(" not in content and "fetchApi" not in content and "fetchWithAuth" not in content:
             continue
         calls.extend(extract_frontend_calls(relative.replace(os.sep, "/"), content))
     return calls

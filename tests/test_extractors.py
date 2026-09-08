@@ -225,6 +225,22 @@ await fetchApi(`${baseUrl}${path}`, { method: 'GET' });
     }
 
 
+def test_fetch_wrapper_with_typescript_generics_is_extracted():
+    content = """\
+export async function createContainer(userId: string, prompt: string) {
+  return fetchApi<{ success: boolean } & CreateContainerResponse>("/containers/create", {
+    method: "POST",
+    body: JSON.stringify({ userId, prompt }),
+  });
+}
+"""
+    calls = ex.extract_frontend_calls("frontend/src/services/api.ts", content)
+
+    assert [(c["method"], c["path"], c["kind"]) for c in calls] == [
+        ("post", "/containers/create", "fetch_wrapper"),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Backend routes
 # --------------------------------------------------------------------------- #
