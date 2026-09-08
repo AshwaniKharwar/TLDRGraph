@@ -32,7 +32,7 @@ def generate_layers_prose(registry: Optional[LayerRegistry] = None) -> str:
     return "\n".join(lines)
 
 
-_LOOP = """One command does everything -- layers, extraction, enrichment, and embeddings:
+_LOOP = """One command does everything -- layers, extraction, enrichment, LLM route links, and embeddings:
 
 ```bash
 tldrgraph init          # interactive: asks once before enrichment token spend
@@ -40,13 +40,13 @@ tldrgraph init --yes    # approve every current candidate until the campaign is 
 ```
 
 `init` automatically detects a supported agent CLI, uses 200-node enrichment batches,
-and downloads/builds dense embeddings. It never guesses: when no agent is usable it
-preserves the graph and prints a manual layer or enrichment handoff.
+infers evidence-backed frontend/backend route links, and downloads/builds dense embeddings.
+It never guesses: when no agent is usable it prints a manual layer, enrichment, or route-link handoff.
 
 Full approval is persisted across continuation runs. In a nested coding-agent session,
 the host agent must read, answer, and apply every 200-node batch without asking again.
 `--batch 200` means all nodes in chunks; `--limit 200` means only 200 total. Never add
-`--limit` or `--embeddings off` unless the user explicitly requests it.
+`--limit`, `--no-llm-links`, or `--embeddings off` unless the user explicitly requests it.
 
 The underlying steps stay available for scripting:
 
@@ -70,8 +70,11 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
   match with 100% confidence; fallback vector search handles related terms with a 0.35 score floor.
 - **Write the response to a different file than the request.** The request is regenerated
   on every run.
+- **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
+  open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
+  with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
 - **Continue after approval until `status: done`.** A `needs_enrichment` batch is work to
-  process, not a reason to ask again. Do not add `--limit` or `--embeddings off`."""
+  process, not a reason to ask again. Do not add `--limit`, `--no-llm-links`, or `--embeddings off`."""
 
 _RESPONSE_SCHEMA = """```yaml
 - id: "<node id copied verbatim from the request>"

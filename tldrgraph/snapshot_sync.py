@@ -153,15 +153,20 @@ def save_graph_snapshot(
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     nodes = [_serialize_node(node_id, data, root_dir, file_hashes) for node_id, data in graph.nodes(data=True)]
-    edges = [
-        {
+    edges = []
+    for src, tgt, data in graph.edges(data=True):
+        edge = {
             "source": str(src),
             "target": str(tgt),
             "relation": data.get("relation", "calls"),
             "confidence": float(data.get("confidence", 1.0)),
         }
-        for src, tgt, data in graph.edges(data=True)
-    ]
+        for key, value in data.items():
+            if key in edge:
+                continue
+            if isinstance(value, (str, int, float, bool, list, dict)) or value is None:
+                edge[key] = value
+        edges.append(edge)
 
     snapshot = {
         "tldrgraph_version": __version__,
@@ -238,7 +243,11 @@ def _restore_edges(snapshot: Dict[str, Any], graph: nx.DiGraph, bridge_relations
             confidence = float(old_edge.get("confidence", 1.0))
         except (TypeError, ValueError):
             confidence = 1.0
-        graph.add_edge(src, tgt, relation=relation, confidence=confidence)
+        attrs = {
+            key: value for key, value in old_edge.items()
+            if key not in {"source", "target", "relation", "confidence"}
+        }
+        graph.add_edge(src, tgt, relation=relation, confidence=confidence, **attrs)
         edges_restored += 1
     return edges_restored
 

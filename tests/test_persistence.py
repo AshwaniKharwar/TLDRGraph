@@ -42,7 +42,9 @@ def test_bridge_relations_constant_exists():
     assert hasattr(gl_mod, "BRIDGE_RELATIONS"), (
         "graph_loader must define a module-level BRIDGE_RELATIONS set"
     )
-    assert gl_mod.BRIDGE_RELATIONS == {"llm_cross_layer_link", "cross_layer_link"}
+    assert gl_mod.BRIDGE_RELATIONS == {
+        "llm_cross_layer_link", "cross_layer_link", "llm_http_route_link",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +152,12 @@ def seeded(mini_repo):
     src = mini_repo.nid("ui_page")
     tgt = mini_repo.nid("async_poll")   # no AST edge between these two
     assert not l1.graph.has_edge(src, tgt)
-    l1.graph.add_edge(src, tgt, relation="llm_cross_layer_link", confidence=0.91)
+    l1.graph.add_edge(
+        src, tgt, relation="llm_http_route_link", confidence=0.91,
+        frontend_file="frontend/src/app/page.tsx", frontend_line=7,
+        backend_file="backend/src/pension/controller.ts", backend_line=12,
+        explanation="The frontend page reaches the async polling handler.",
+    )
 
     svc = mini_repo.nid("svc_pension")
     node = l1.graph.nodes[svc]
@@ -169,8 +176,10 @@ def test_bridge_edge_survives_a_fresh_loader(seeded, mini_repo):
     g2 = l2.load_or_extract(enrich_llm=False)
 
     assert g2.has_edge(src, tgt), "cross-layer bridge edge was not carried forward"
-    assert g2.edges[src, tgt]["relation"] == "llm_cross_layer_link"
+    assert g2.edges[src, tgt]["relation"] == "llm_http_route_link"
     assert g2.edges[src, tgt].get("confidence") == pytest.approx(0.91)
+    assert g2.edges[src, tgt]["frontend_line"] == 7
+    assert g2.edges[src, tgt]["explanation"] == "The frontend page reaches the async polling handler."
 
 
 def test_intent_survives_a_fresh_loader(seeded, mini_repo):

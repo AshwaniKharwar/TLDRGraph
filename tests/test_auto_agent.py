@@ -277,11 +277,17 @@ def _is_enrichment_prompt(prompt: str) -> bool:
     return "Nodes (" in prompt
 
 
+def _is_llm_links_prompt(prompt: str) -> bool:
+    return "frontend-to-backend API links" in prompt
+
+
 def _fake_answer(prompt: str) -> str:
     """
     One fake agent for the whole run: it designs layers when asked for layers,
     and enriches every node id when asked for enrichment.
     """
+    if _is_llm_links_prompt(prompt):
+        return "[]"
     if not _is_enrichment_prompt(prompt):
         return json.dumps(VALID_LAYER_SET)
 
@@ -575,6 +581,60 @@ def test_agent_cli_runs_the_whole_loop_when_asked(monkeypatch, cli_repo, agent_a
     assert "status: done" in res.output
     snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
     assert any(n.get("enrichment_source") == "agent" for n in snapshot["nodes"])
+
+
+def test_agent_cli_infers_llm_route_links_during_init(monkeypatch, cli_repo, agent_allowed):
+    (cli_repo / "frontend/src/orders").mkdir(parents=True)
+    (cli_repo / "backend/src").mkdir(parents=True)
+    (cli_repo / "frontend/src/orders/page.tsx").write_text(
+        "export function OrdersPage() { return getOrders() }\n", encoding="utf-8"
+    )
+    (cli_repo / "backend/src/orders.controller.ts").write_text(
+        "@Controller('orders')\nexport class OrdersController {\n"
+        "  @Get()\n  findAll() { return [] }\n}\n",
+        encoding="utf-8",
+    )
+
+    def _answer(prompt):
+        if _is_llm_links_prompt(prompt):
+            payload = json.loads(prompt[prompt.index("Candidate context:") + len("Candidate context:"):])
+            src = payload["frontend_nodes"][0]
+            tgt = payload["backend_nodes"][0]
+            return json.dumps([{
+                "source": src["id"],
+                "target": tgt["id"],
+                "confidence": 0.84,
+                "frontend_evidence": {"file": src["file"], "line": src["line"] or 1},
+                "backend_evidence": {"file": tgt["file"], "line": tgt["line"] or 1},
+                "explanation": "The frontend orders page semantically loads data served by the orders controller.",
+            }])
+        return _fake_answer(prompt)
+
+    _stub_agent_cli(monkeypatch, answer=_answer)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+
+    assert res.exit_code == 0, res.output
+    snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
+    edges = [e for e in snapshot["edges"] if e.get("relation") == "llm_http_route_link"]
+    assert edges
+    assert edges[0]["confidence"] == 0.84
+    assert edges[0]["frontend_file"].endswith("page.tsx")
+
+
+def test_no_llm_links_flag_skips_route_inference(monkeypatch, cli_repo, agent_allowed):
+    calls = []
+
+    def _answer(prompt):
+        if _is_llm_links_prompt(prompt):
+            calls.append(prompt)
+            return "[]"
+        return _fake_answer(prompt)
+
+    _stub_agent_cli(monkeypatch, answer=_answer)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli", "--no-llm-links"])
+
+    assert res.exit_code == 0, res.output
+    assert calls == []
 
 
 def test_agent_cli_reports_short_intents_without_stopping(monkeypatch, cli_repo, agent_allowed):

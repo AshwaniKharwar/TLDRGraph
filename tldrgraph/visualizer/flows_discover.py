@@ -18,8 +18,11 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
+from ..flow_traversal import BRIDGE_RELATIONS
+
 MAX_STEPS = 7
 MIN_STEPS = 2
+ROUTE_LINK_RELATIONS = ("llm_http_route_link", "http_route_link", "calls_endpoint")
 
 # Files where a request, a command or a page starts. Ordered by how strongly
 # each one signals an entry point.
@@ -57,6 +60,18 @@ def _is_next_page_file(file_path: str) -> bool:
     """Whether a file is a Next.js App Router page, including ``app/page``."""
     path = (file_path or "").replace("\\", "/")
     return bool(re.search(r"(^|/)app(?:/.+)?/page\.(t|j)sx?$", path, re.IGNORECASE))
+
+
+def _is_frontend_file(file_path: str) -> bool:
+    path = (file_path or "").replace("\\", "/").lower()
+    return any(part in path for part in ("frontend/", "/app/", "/pages/", "/components/"))
+
+
+def _has_route_link(graph: nx.DiGraph, node_id: str) -> bool:
+    return any(
+        data.get("relation") in ROUTE_LINK_RELATIONS
+        for _, _, data in graph.out_edges(node_id, data=True)
+    )
 
 
 def _entry_score(node: Dict[str, Any]) -> Tuple[int, str]:
@@ -105,6 +120,8 @@ def rank_entry_points(
             continue
 
         signal, category = _entry_score(node)
+        if _is_frontend_file(node.get("file") or "") and _has_route_link(graph, node_id):
+            signal, category = max(signal, 7), "Feature flow"
         out_degree = graph.out_degree(node_id)
         in_degree = graph.in_degree(node_id)
         if signal == 0 and in_degree > 0:
@@ -112,7 +129,7 @@ def rank_entry_points(
         # A page can legitimately be a thin route wrapper that renders one
         # feature component.  Requiring two edges hides the home page and many
         # small App Router pages before their component's own flow is explored.
-        minimum_edges = 1 if _is_next_page_file(node.get("file") or "") else 2
+        minimum_edges = 1 if signal >= 7 or _is_next_page_file(node.get("file") or "") else 2
         if out_degree < minimum_edges:
             continue                       # nothing downstream to show
 
@@ -134,6 +151,7 @@ def _next_step(
     """The most meaningful next call: a layer change beats staying put."""
     here = nodes_by_id.get(current) or {}
     best: Optional[Tuple[float, str]] = None
+    route_priority = {"llm_http_route_link": 1000, "http_route_link": 900, "calls_endpoint": 800}
 
     for _, target, data in graph.out_edges(current, data=True):
         if target in visited or target not in nodes_by_id:
@@ -146,11 +164,12 @@ def _next_step(
             continue
 
         score = float(graph.out_degree(target))
+        score += route_priority.get(relation, 0)
         if node.get("layer_id") and node.get("layer_id") != here.get("layer_id"):
             score += 12                    # crossing a layer is the interesting move
         if node.get("file") != here.get("file"):
             score += 4
-        if relation == "cross_layer_link":
+        if relation in BRIDGE_RELATIONS:
             score += 3
         if best is None or score > best[0]:
             best = (score, target)

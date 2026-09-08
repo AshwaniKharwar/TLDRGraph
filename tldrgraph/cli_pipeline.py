@@ -12,40 +12,26 @@ from typing import Any, Dict, List, Optional
 import click
 
 from . import agent_runner, paths
-from .cli_agent_loop import build_agent_enrichment_prompt, run_agent_enrichment
+from .cli_agent_loop import run_agent_enrichment
 from .cli_enrichment import (
-    AGENT_ENRICHMENT_SOURCE,
-    REQUEST_FILENAME,
-    RESPONSE_FILENAME,
-    STATE_DIR,
-    apply_enrichment_items,
-    build_enrichment_batch,
-    coerce_enrichment_items,
-    compute_degrees,
-    enrichment_candidates,
-    needs_agent_enrichment,
-    read_payload,
-    stamp_degrees,
-    state_path,
-    write_payload,
+    AGENT_ENRICHMENT_SOURCE, REQUEST_FILENAME, RESPONSE_FILENAME, STATE_DIR,
+    apply_enrichment_items, build_enrichment_batch, coerce_enrichment_items,
+    compute_degrees, enrichment_candidates, needs_agent_enrichment, read_payload,
+    stamp_degrees, state_path, write_payload,
 )
+from .cli_llm_links import apply_pending_llm_links_response, run_llm_link_step
 from .graph_loader import GraphLoader
 from .installer import ensure_gitignore, install_agent_rules
 from .layer_config import config_path
 from .layers import get_registry
 from .init_policy import (
-    clear_enrichment_approval,
-    embedding_failure as _embedding_failure,
-    embedding_summary as _embedding_summary,
-    enrichment_approval_is_active,
-    remember_full_enrichment_approval,
-    resolve_init_embeddings,
+    clear_enrichment_approval, embedding_failure as _embedding_failure,
+    embedding_summary as _embedding_summary, enrichment_approval_is_active,
+    remember_full_enrichment_approval, resolve_init_embeddings,
 )
 from .propose_layers import (
-    RESPONSE_FILENAME as PROPOSE_RESPONSE_FILENAME,
-    apply_proposed_layers,
-    auto_configure_layers,
-    generate_propose_request,
+    RESPONSE_FILENAME as PROPOSE_RESPONSE_FILENAME, apply_proposed_layers,
+    auto_configure_layers, generate_propose_request,
 )
 from .visualizer import generate_visualizer_html
 
@@ -123,14 +109,9 @@ def _check_confirmation(candidates: List[Dict[str, Any]], total: int, enriched: 
             return STATUS_NEEDS_CONFIRMATION
         return None
     emit_status(STATUS_NEEDS_CONFIRMATION, "enrichment", [
-        f"The graph is built and queryable: {total} nodes, {enriched} enriched from source, {excluded} not eligible (utility bucket, prose nodes).",
-        "",
-        f"{len(candidates)} node(s) still carry generated summaries rather than",
-        "an intent read from the source. Enriching them means roughly",
-        f"{rounds} round(s) of {batch_size} nodes, and each round costs tokens.",
-        "",
-        "ASK THE USER whether to proceed, showing them that estimate. Then:",
-        "",
+        f"The graph is built and queryable: {total} nodes, {enriched} enriched from source, {excluded} not eligible.",
+        f"{len(candidates)} node(s) need source-read intents: about {rounds} round(s) of {batch_size}.",
+        "ASK THE USER whether to proceed, showing them that estimate.",
         "  they agree          → tldrgraph init --yes (approval persists until done)",
         "  smaller first pass  → tldrgraph init --yes --limit 100",
         "  they decline        → stop here; the graph is already usable",
@@ -146,6 +127,7 @@ def _run_agent_cli_enrichment(
     agent_model: Optional[str],
     progress: Dict[str, Any],
     as_json: bool,
+    llm_links: bool,
 ) -> Optional[str]:
     agent = agent_runner.find_agent_cli()
     if agent is None:
@@ -162,6 +144,9 @@ def _run_agent_cli_enrichment(
     rem = len(enrichment_candidates(loader, compute_degrees(loader.graph)))
     if not rem:
         clear_enrichment_approval(path)
+        if llm_links:
+            link_status = run_llm_link_step(path, os.path.abspath(path), loader, True, agent_model, as_json, emit_status)
+            if link_status: return link_status
     embedding_error = None if rem else _embedding_failure(loader)
     status = STATUS_NEEDS_ENRICHMENT if rem else (
         STATUS_NEEDS_EMBEDDINGS if embedding_error else STATUS_DONE
@@ -193,12 +178,9 @@ def _emit_manual_enrichment_handoff(
 
     emit_status(STATUS_NEEDS_ENRICHMENT, "enrichment", [
         f"{len(req['batch'])} node(s) queued, {len(candidates)} remaining overall.",
-        "",
         f"  1. Read {os.path.relpath(req_path, root)}",
-        "  2. OPEN the source file of every node in it. An intent guessed from a",
-        "     symbol name is worse than none -- it poisons semantic search.",
-        f"  3. Write {os.path.join(STATE_DIR, RESPONSE_FILENAME)} (YAML list of",
-        "     {id, intent, input_fields, output_fields, calls}). Copy each id verbatim.",
+        "  2. OPEN every source file; do not guess intents from symbol names.",
+        f"  3. Write {os.path.join(STATE_DIR, RESPONSE_FILENAME)} with {{id, intent, input_fields, output_fields, calls}}.",
         "  4. Run: tldrgraph init (approval is remembered; do not ask again)",
     ], progress=progress, as_json=as_json)
     return STATUS_NEEDS_ENRICHMENT
@@ -242,6 +224,7 @@ def _handle_enrichment_step(
     agent_cli: bool,
     agent_model: Optional[str],
     as_json: bool,
+    llm_links: bool,
 ) -> str:
     candidates = enrichment_candidates(loader, compute_degrees(loader.graph))
     total = loader.graph.number_of_nodes()
@@ -253,6 +236,9 @@ def _handle_enrichment_step(
 
     if not candidates:
         clear_enrichment_approval(path)
+        if llm_links:
+            link_status = run_llm_link_step(path, root, loader, agent_cli, agent_model, as_json, emit_status)
+            if link_status: return link_status
         return _emit_enrichment_done(loader, total, enriched, excluded, registry, as_json)
 
     planned = min(len(candidates), max_nodes) if max_nodes else len(candidates)
@@ -280,7 +266,7 @@ def _handle_enrichment_step(
         progress["approval_persisted"] = True
 
     if agent_cli:
-        res = _run_agent_cli_enrichment(path, loader, batch_size, max_nodes, agent_model, progress, as_json)
+        res = _run_agent_cli_enrichment(path, loader, batch_size, max_nodes, agent_model, progress, as_json, llm_links)
         if res is not None:
             return res
 
@@ -356,6 +342,7 @@ def init_pipeline(
     agent_cli: bool,
     agent_model: Optional[str],
     embeddings: Optional[str],
+    llm_links: bool,
     as_json: bool,
 ) -> str:
     root = os.path.abspath(path)
@@ -391,9 +378,13 @@ def init_pipeline(
 
     applied = apply_pending_enrichment_response(path, loader)
     _report_enrichment_applied_status(applied, as_json)
+    if llm_links:
+        link_applied = apply_pending_llm_links_response(path, loader)
+        if link_applied and not as_json:
+            click.echo(f"🔗 Applied {len(link_applied['applied'])} LLM route link(s)")
 
     generate_visualizer_html(path)
 
     return _handle_enrichment_step(
-        path, root, loader, registry, assume_yes, batch_size, max_nodes, agent_cli, agent_model, as_json
+        path, root, loader, registry, assume_yes, batch_size, max_nodes, agent_cli, agent_model, as_json, llm_links
     )

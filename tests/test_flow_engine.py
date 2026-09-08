@@ -412,6 +412,7 @@ def test_bridge_relations_come_from_the_loader_and_tolerate_new_names():
     # The deterministic relations another producer is adding in parallel are
     # prioritised the moment they show up, and their absence is not an error.
     assert {"http_route_link", "db_model_link"} <= fe.BRIDGE_RELATIONS
+    assert "llm_http_route_link" in fe.BRIDGE_RELATIONS
 
 
 def test_deterministic_bridge_relation_gets_priority(flow_graph, tmp_path):

@@ -118,7 +118,7 @@ def test_workflows_payload_structure(mini_repo):
 
 
 def test_workflow_extraction_is_not_capped_at_twenty(monkeypatch):
-    """Every distinct discovered journey is retained after curated workflows."""
+    """Every distinct feature journey is retained after curated workflows."""
     import networkx as nx
     from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
 
@@ -126,21 +126,22 @@ def test_workflow_extraction_is_not_capped_at_twenty(monkeypatch):
     nodes_by_id = {}
     for index in range(21):
         root = f"root_{index}"
-        service = f"service_{index}"
+        handler = f"handler_{index}"
         store = f"store_{index}"
         for node_id, label, path in (
-            (root, f"handleOrder{index}()", f"src/routes/orders_{index}.py"),
-            (service, f"processOrder{index}()", f"src/services/orders_{index}.py"),
+            (root, f"OrdersPage{index}()", f"frontend/src/app/orders_{index}/page.tsx"),
+            (handler, f"handleOrder{index}()", f"backend/src/orders_{index}.controller.ts"),
             (store, f"saveOrder{index}()", f"src/data/orders_{index}.py"),
         ):
             nodes_by_id[node_id] = {
-                "label": label, "file": path, "layer_id": "app",
-                "layer": "Application", "is_test": False,
+                "label": label, "file": path,
+                "layer_id": "ui" if node_id == root else ("api" if node_id == handler else "data"),
+                "layer": "UI" if node_id == root else ("API" if node_id == handler else "Data"),
+                "is_test": False,
             }
             graph.add_node(node_id, label=label, file=path)
-        graph.add_edge(root, service, relation="calls")
-        graph.add_edge(root, store, relation="calls")
-        graph.add_edge(service, store, relation="calls")
+        graph.add_edge(root, handler, relation="llm_http_route_link")
+        graph.add_edge(handler, store, relation="calls")
 
     monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
     workflows = extract_visualizer_workflows(graph, nodes_by_id, sources=None)  # type: ignore[arg-type]
@@ -211,3 +212,184 @@ def test_two_step_discovered_workflow_is_retained():
 
     assert len(workflows) == 1
     assert [step["node_id"] for step in workflows[0]["steps"]] == ["handler", "service"]
+
+
+def test_discovered_workflow_prioritizes_llm_http_route_links():
+    import networkx as nx
+    from tldrgraph.visualizer.flows_discover import discover_workflows
+
+    graph = nx.DiGraph()
+    nodes = {
+        "page": {
+            "label": "OrdersPage()", "file": "src/app/orders/page.tsx", "layer_id": "ui",
+            "layer": "UI", "is_test": False,
+        },
+        "widget": {
+            "label": "OrdersWidget()", "file": "src/app/orders/Widget.tsx", "layer_id": "ui",
+            "layer": "UI", "is_test": False,
+        },
+        "handler": {
+            "label": "findAll()", "file": "backend/src/orders.controller.ts", "layer_id": "api",
+            "layer": "API", "is_test": False,
+        },
+        "fallback_handler": {
+            "label": "findLegacy()", "file": "backend/src/legacy-orders.controller.ts", "layer_id": "api",
+            "layer": "API", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("page", "widget", relation="calls")
+    graph.add_edge("page", "fallback_handler", relation="http_route_link", confidence=1.0)
+    graph.add_edge("page", "handler", relation="llm_http_route_link", confidence=0.86)
+    for index in range(8):
+        sink = f"fallback_sink_{index}"
+        graph.add_node(sink, label=f"fallbackSink{index}()", file=f"backend/src/fallback/{index}.ts")
+        graph.add_edge("fallback_handler", sink, relation="calls")
+
+    def format_step(node_id, step_number):
+        node = nodes[node_id]
+        return {"node_id": node_id, "step_number": step_number, **node}
+
+    workflows = discover_workflows(graph, nodes, format_step, lambda steps: [])
+
+    assert workflows[0]["steps"][1]["node_id"] == "handler"
+    assert workflows[0]["steps"][1]["via_relation"] == "llm_http_route_link"
+
+
+def test_route_linked_frontend_component_can_start_a_feature_flow():
+    import networkx as nx
+    from tldrgraph.visualizer.flows_discover import discover_workflows, rank_entry_points
+
+    graph = nx.DiGraph()
+    nodes = {
+        "page": {
+            "label": "ProjectPage()", "file": "frontend/src/app/projects/page.tsx",
+            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
+        },
+        "hook": {
+            "label": "useDeployment()", "file": "frontend/src/app/projects/hooks/useDeployment.ts",
+            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
+        },
+        "endpoint": {
+            "label": "GET /deployment-config/:id", "file": "backend/src/routes/deployment.ts",
+            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("page", "hook", relation="calls")
+    graph.add_edge("hook", "endpoint", relation="llm_http_route_link")
+
+    def format_step(node_id, step_number):
+        node = nodes[node_id]
+        return {"node_id": node_id, "step_number": step_number, **node}
+
+    assert ("hook", "Feature flow") in rank_entry_points(graph, nodes)
+
+    workflows = discover_workflows(graph, nodes, format_step, lambda steps: [])
+    hook_flow = next(w for w in workflows if w["root_id"] == "hook")
+    assert [step["node_id"] for step in hook_flow["steps"]] == ["hook", "endpoint"]
+
+
+def test_visualizer_keeps_only_complete_frontend_to_backend_flows(monkeypatch):
+    import networkx as nx
+    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+
+    graph = nx.DiGraph()
+    nodes = {
+        "page": {
+            "label": "CasesPage()", "file": "frontend/src/app/cases/page.tsx",
+            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
+        },
+        "handler": {
+            "label": "createCase()", "file": "backend/src/cases.controller.ts",
+            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
+        },
+        "service": {
+            "label": "createCaseRecord()", "file": "backend/src/cases.service.ts",
+            "layer_id": "application_services", "layer": "Application Services", "is_test": False,
+        },
+        "backend_only": {
+            "label": "nightlySync()", "file": "backend/src/jobs/sync.ts",
+            "layer_id": "async", "layer": "Async", "is_test": False,
+        },
+        "backend_service": {
+            "label": "syncCases()", "file": "backend/src/cases.service.ts",
+            "layer_id": "service", "layer": "Service", "is_test": False,
+        },
+        "backend_endpoint": {
+            "label": "GET /cases/sync", "file": "backend/src/routes/cases.ts",
+            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
+        },
+        "ui_only": {
+            "label": "HelpPage()", "file": "frontend/src/app/help/page.tsx",
+            "layer_id": "ui", "layer": "UI", "is_test": False,
+        },
+        "component": {
+            "label": "HelpContent()", "file": "frontend/src/app/help/HelpContent.tsx",
+            "layer_id": "ui", "layer": "UI", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("page", "handler", relation="llm_http_route_link")
+    graph.add_edge("handler", "service", relation="calls")
+    graph.add_edge("backend_only", "backend_service", relation="calls_endpoint")
+    graph.add_edge("backend_service", "backend_endpoint", relation="calls")
+    graph.add_edge("ui_only", "component", relation="calls")
+
+    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
+    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
+
+    assert [w["root_id"] for w in workflows] == ["page"]
+    assert workflows[0]["feature_flow"] is True
+    assert workflows[0]["completeness"] == "frontend_to_backend"
+    assert workflows[0]["route_link_relation"] == "llm_http_route_link"
+
+
+def test_visualizer_uses_deterministic_route_link_as_fallback(monkeypatch):
+    import networkx as nx
+    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+
+    graph = nx.DiGraph()
+    nodes = {
+        "page": {
+            "label": "OrdersPage()", "file": "frontend/src/app/orders/page.tsx",
+            "layer_id": "ui", "layer": "UI", "is_test": False,
+        },
+        "handler": {
+            "label": "listOrders()", "file": "backend/src/orders.controller.ts",
+            "layer_id": "api", "layer": "API", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("page", "handler", relation="http_route_link")
+
+    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
+    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
+
+    assert len(workflows) == 1
+    assert workflows[0]["route_link_relation"] == "http_route_link"
+
+
+def test_visualizer_accepts_legacy_endpoint_calls_as_route_fallback(monkeypatch):
+    import networkx as nx
+    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+
+    graph = nx.DiGraph()
+    nodes = {
+        "page": {
+            "label": "BillingPage()", "file": "frontend/src/app/billing/page.tsx",
+            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
+        },
+        "endpoint": {
+            "label": "GET /billing/pricing", "file": "backend/src/routes/billing.ts",
+            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
+    graph.add_edge("page", "endpoint", relation="calls_endpoint")
+
+    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
+    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
+
+    assert len(workflows) == 1
+    assert workflows[0]["route_link_relation"] == "calls_endpoint"

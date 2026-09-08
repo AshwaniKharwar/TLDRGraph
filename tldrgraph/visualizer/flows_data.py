@@ -113,6 +113,7 @@ SUPPORT_PER_STEP = 6
 
 # Callers that exist to exercise the code rather than take part in it.
 NON_PRODUCT_DIRS = ("tests/", "test/", "benchmarks/", "scripts/")
+ROUTE_LINK_PRIORITY = ("llm_http_route_link", "http_route_link", "calls_endpoint")
 
 
 def _collect_curated_steps(
@@ -243,6 +244,53 @@ def _resolved_ratio(steps: List[Dict[str, Any]], nodes_by_id: Dict[str, Dict[str
     return real / len(steps)
 
 
+def _step_file(step: Dict[str, Any], nodes_by_id: Dict[str, Dict[str, Any]]) -> str:
+    node = nodes_by_id.get(step.get("node_id")) or {}
+    return str(step.get("file") or node.get("file") or "").replace("\\", "/").lower()
+
+
+def _is_frontend_file(file_path: str) -> bool:
+    return any(part in file_path for part in ("frontend/", "/app/", "/pages/", "/components/"))
+
+
+def _is_backend_file(file_path: str) -> bool:
+    return any(part in file_path for part in ("backend/", "/api/", "/routes/", "controller", "/services/"))
+
+
+def _preferred_route_link(
+    workflow: Dict[str, Any],
+    nodes_by_id: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
+    steps = workflow.get("steps") or []
+    by_id = {s.get("node_id"): s for s in steps}
+
+    for relation in ROUTE_LINK_PRIORITY:
+        for step in steps:
+            if step.get("via_relation") != relation:
+                continue
+            previous = by_id.get(step.get("from_node"))
+            if not previous:
+                continue
+            if _is_frontend_file(_step_file(previous, nodes_by_id)) and _is_backend_file(_step_file(step, nodes_by_id)):
+                return relation
+    return None
+
+
+def _feature_workflow(
+    workflow: Dict[str, Any],
+    nodes_by_id: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    route_relation = _preferred_route_link(workflow, nodes_by_id)
+    if not route_relation:
+        return None
+    return {
+        **workflow,
+        "feature_flow": True,
+        "completeness": "frontend_to_backend",
+        "route_link_relation": route_relation,
+    }
+
+
 def extract_visualizer_workflows(
     graph: nx.DiGraph,
     nodes_by_id: Dict[str, Dict[str, Any]],
@@ -274,4 +322,4 @@ def extract_visualizer_workflows(
     taken = {w["root_id"] for w in workflows}
     workflows.extend(w for w in found if w["root_id"] not in taken)
 
-    return workflows
+    return [wf for wf in (_feature_workflow(w, nodes_by_id) for w in workflows) if wf]
