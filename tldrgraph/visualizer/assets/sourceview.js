@@ -227,7 +227,7 @@ function loadSourceFile(path) {
 // -------------------------------------------------------------
 // Re-resolving a symbol against live content
 // -------------------------------------------------------------
-const DECLARATION_START = /^\s*(?:@\w|(?:def|class|function|func|fn|type|interface|struct|enum|impl|trait|module|export|public|private|protected|internal|static|const|let|var|abstract|final|async|sub|package)\b)/;
+const DECLARATION_START = /^\s*(?:@\w|(?:def|class|function|func|fn|type|model|interface|struct|enum|impl|trait|module|export|public|private|protected|internal|static|const|let|var|abstract|final|async|sub|package)\b)/;
 
 const BRACE_LANGUAGES = new Set([
   'javascript', 'typescript', 'java', 'go', 'rust', 'c', 'cpp', 'csharp',
@@ -248,7 +248,7 @@ function declaresSymbol(line, name) {
 function findDeclaration(lines, name) {
   if (!name) return 0;
   const strong = new RegExp(
-    '^\\s*(?:async\\s+)?(?:def|class|function|func|fn|interface|struct|type|enum)\\s+' +
+    '^\\s*(?:async\\s+)?(?:def|class|function|func|fn|interface|struct|type|model|enum)\\s+' +
     escapeRegExp(name) + '\\b'
   );
   for (let i = 0; i < lines.length; i++) {
@@ -258,6 +258,52 @@ function findDeclaration(lines, name) {
     if (declaresSymbol(lines[i], name)) return i + 1;
   }
   return 0;
+}
+
+function routeCandidatePaths(routePath, rawPath) {
+  const paths = [routePath, rawPath].filter(Boolean);
+  if (routePath) {
+    const parts = routePath.split('/').filter(Boolean);
+    if (parts.length > 1) paths.push('/' + parts.slice(1).join('/'));
+  }
+  return Array.from(new Set(paths));
+}
+
+function routeMatchLine(lines, startIdx, method, routePath) {
+  if (!method || !routePath) return 0;
+  const windowText = lines.slice(startIdx, startIdx + 6).join('\n');
+  const methodRe = new RegExp('(?:[.@]\\s*|\\b)' + escapeRegExp(method) + '\\s*\\(', 'i');
+  const pathRe = new RegExp('["\'`]' + escapeRegExp(routePath) + '["\'`]');
+  const match = methodRe.exec(windowText);
+  if (!match) return 0;
+  if (!pathRe.test(windowText.slice(match.index + match[0].length))) return 0;
+  return startIdx + windowText.slice(0, match.index).split('\n').length;
+}
+
+function findRouteRegistration(lines, item) {
+  const method = String(item.method || '').trim().toLowerCase();
+  const paths = routeCandidatePaths(
+    String(item.route_path || '').trim(),
+    String(item.raw_path || '').trim()
+  );
+  if (!method || !paths.length) return { line: 0, relocated: false };
+
+  if (item.code_start && item.code_start <= lines.length) {
+    for (const path of paths) {
+      const line = routeMatchLine(lines, item.code_start - 1, method, path);
+      if (line) return { line: line, relocated: line !== item.code_start };
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    for (const path of paths) {
+      const line = routeMatchLine(lines, i, method, path);
+      if (line) {
+        return { line: line, relocated: !!item.code_start && line !== item.code_start };
+      }
+    }
+  }
+  return { line: 0, relocated: false };
 }
 
 function indentOf(line) {
@@ -329,6 +375,11 @@ function resolveRange(item, lines) {
   } else {
     startLine = findDeclaration(lines, name);
     relocated = !!startLine && startLine !== item.code_start;
+    if (!startLine) {
+      const route = findRouteRegistration(lines, item);
+      startLine = route.line;
+      relocated = route.relocated;
+    }
   }
 
   if (!startLine) return null;

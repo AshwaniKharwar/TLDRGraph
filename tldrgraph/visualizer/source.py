@@ -73,7 +73,7 @@ def language_for(path: str) -> str:
 
 #: Keywords that introduce a declaration in the languages we care about.
 DECLARATION_KEYWORDS = (
-    "def", "class", "function", "func", "fn", "type", "interface", "struct",
+    "def", "class", "function", "func", "fn", "type", "model", "interface", "struct",
     "enum", "impl", "trait", "module", "export", "public", "private",
     "protected", "internal", "static", "const", "let", "var", "abstract",
     "final", "async", "sub", "package",
@@ -116,7 +116,7 @@ def _find_declaration(lines: List[str], name: str) -> Optional[int]:
         return None
 
     strong = re.compile(
-        r"^\s*(?:async\s+)?(?:def|class|function|func|fn|interface|struct|type|enum)\s+"
+        r"^\s*(?:async\s+)?(?:def|class|function|func|fn|interface|struct|type|model|enum)\s+"
         + re.escape(name) + r"\b"
     )
     for idx, line in enumerate(lines):
@@ -127,6 +127,57 @@ def _find_declaration(lines: List[str], name: str) -> Optional[int]:
         if _declares(line, name):
             return idx + 1
     return None
+
+
+def _route_candidate_paths(route_path: str, raw_path: str = "") -> List[str]:
+    paths = [p for p in (route_path, raw_path) if p]
+    if route_path:
+        parts = [p for p in route_path.split("/") if p]
+        if len(parts) > 1:
+            paths.append("/" + "/".join(parts[1:]))
+    return list(dict.fromkeys(paths))
+
+
+def _route_match_line(lines: List[str], start_idx: int, method: str, route_path: str) -> Optional[int]:
+    """Returns the actual route line found in a short source window."""
+    if not method or not route_path:
+        return None
+    window = "\n".join(lines[start_idx:start_idx + 6])
+    path_re = re.compile(r"['\"`]" + re.escape(route_path) + r"['\"`]")
+    method_re = re.compile(r"(?:[.@]\s*|\b)" + re.escape(method) + r"\s*\(", re.I)
+    match = method_re.search(window)
+    if not match:
+        return None
+    path_match = path_re.search(window, match.end())
+    if not path_match:
+        return None
+    return start_idx + window[:match.start()].count("\n") + 1
+
+
+def _find_route_registration(
+    lines: List[str],
+    recorded: Optional[int],
+    method: str = "",
+    route_path: str = "",
+    raw_path: str = "",
+) -> Tuple[Optional[int], bool]:
+    method = (method or "").strip().lower()
+    paths = _route_candidate_paths((route_path or "").strip(), (raw_path or "").strip())
+    if not method or not paths:
+        return None, False
+
+    if recorded and 1 <= recorded <= len(lines):
+        for path in paths:
+            match_line = _route_match_line(lines, recorded - 1, method, path)
+            if match_line is not None:
+                return match_line, match_line != recorded
+
+    for idx in range(len(lines)):
+        for path in paths:
+            match_line = _route_match_line(lines, idx, method, path)
+            if match_line is not None:
+                return match_line, bool(recorded and match_line != recorded)
+    return None, False
 
 
 def _indent_of(line: str) -> int:
@@ -192,17 +243,25 @@ def _leading_context(lines: List[str], start_idx: int) -> int:
 
 
 def _resolve_symbol_start_line(
-    lines: List[str], recorded: Optional[int], name: str
+    lines: List[str],
+    recorded: Optional[int],
+    name: str,
+    method: str = "",
+    route_path: str = "",
+    raw_path: str = "",
 ) -> Tuple[Optional[int], bool]:
     if recorded and 1 <= recorded <= len(lines):
         if not name or _declares(lines[recorded - 1], name):
             return recorded, False
+        route_line, relocated = _find_route_registration(lines, recorded, method, route_path, raw_path)
+        if route_line is not None:
+            return route_line, relocated
 
     found = _find_declaration(lines, name)
-    if found is None:
-        return None, False
-    relocated = bool(recorded) and found != recorded
-    return found, relocated
+    if found is not None:
+        return found, bool(recorded) and found != recorded
+
+    return _find_route_registration(lines, recorded, method, route_path, raw_path)
 
 
 def _find_symbol_end_idx(lines: List[str], start_line: int, ext: str) -> int:
@@ -244,6 +303,9 @@ class SourceIndex:
         rel_path: str,
         source_location: Any,
         name: str = "",
+        method: str = "",
+        route_path: str = "",
+        raw_path: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         Returns ``{start, end, relocated, language}`` for the symbol, or ``None``
@@ -263,7 +325,9 @@ class SourceIndex:
             return None
 
         recorded = parse_line_number(source_location)
-        start_line, relocated = _resolve_symbol_start_line(lines, recorded, name)
+        start_line, relocated = _resolve_symbol_start_line(
+            lines, recorded, name, method, route_path, raw_path
+        )
         if start_line is None:
             return None
 
@@ -289,12 +353,15 @@ class SourceIndex:
         rel_path: str,
         source_location: Any,
         name: str = "",
+        method: str = "",
+        route_path: str = "",
+        raw_path: str = "",
     ) -> Optional[Dict[str, Any]]:
         """
         :meth:`locate_symbol` plus the source text itself, capped so one huge
         symbol cannot run away. Used by tooling that wants the code inline.
         """
-        found = self.locate_symbol(rel_path, source_location, name)
+        found = self.locate_symbol(rel_path, source_location, name, method, route_path, raw_path)
         if found is None:
             return None
 

@@ -140,6 +140,10 @@ def _serialize_node(node_id: str, data: Dict[str, Any], root_dir: str, file_hash
         "dead_code_reason": data.get("dead_code_reason", ""),
         "is_test": bool(data.get("is_test", is_test_node(data.get("file", ""), data.get("label", "")))),
         "signature": node_signature(root_dir, data, file_hashes),
+        "method": data.get("method", ""),
+        "path": data.get("path", ""),
+        "raw_path": data.get("raw_path", ""),
+        "base": data.get("base", ""),
     }
 
 

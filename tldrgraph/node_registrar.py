@@ -178,6 +178,8 @@ def _build_endpoint_node_attrs(endpoint: Dict[str, Any]) -> Dict[str, Any]:
         "enrichment_source": "",
         "method": endpoint.get("method", ""),
         "path": endpoint.get("path", ""),
+        "raw_path": endpoint.get("raw_path", ""),
+        "base": endpoint.get("base", ""),
         "handlers": endpoint.get("handlers") or [],
         "call_site_count": len(endpoint.get("call_sites") or []),
     }
@@ -217,6 +219,10 @@ def _register_express_callback_nodes(
                 "summary": placeholder_summary(layer_obj.name, label, file_path),
                 "input_fields": [], "output_fields": [], "fields": [],
                 "intent": "", "enrichment_source": "",
+                "method": endpoint.get("method", ""),
+                "path": endpoint.get("path", ""),
+                "raw_path": route.get("raw_path", ""),
+                "base": route.get("base", ""),
             }
             graph.add_node(node_id, **node_attrs)
             live_attrs = graph.nodes[node_id]

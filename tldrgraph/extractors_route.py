@@ -45,12 +45,10 @@ _HANDLER_RE = re.compile(
     r"(?P<name>[A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\("
 )
 
-
 def normalize_http_method(method: str) -> str:
     """del -> delete; everything else lowercased."""
     method = (method or "").strip().lower()
     return "delete" if method == "del" else method
-
 
 def _strip_scheme_and_prefix(path: str) -> str:
     if path.startswith("${"):
@@ -65,7 +63,6 @@ def _strip_scheme_and_prefix(path: str) -> str:
         if idx != -1:
             path = path[:idx]
     return _TEMPLATE_PLACEHOLDER_RE.sub(ROUTE_PARAM, path)
-
 
 def _normalize_route_segment(segment: str) -> Optional[str]:
     seg = segment.strip()
@@ -92,7 +89,6 @@ def normalize_route_path(raw: str) -> str:
 
     return "/" + "/".join(segments)
 
-
 def endpoint_node_id(method: str, path: str) -> str:
     """Stable id for one endpoint identity: GET /auth/me -> endpoint_get_auth_me."""
     method = normalize_http_method(method) or "get"
@@ -103,7 +99,6 @@ def endpoint_node_id(method: str, path: str) -> str:
 def endpoint_label(method: str, path: str) -> str:
     """('get', '/auth/me') -> 'GET /auth/me'."""
     return f"{normalize_http_method(method).upper()} {path or '/'}"
-
 
 def _find_handler_name(lines: Sequence[str], decorator_index: int, lookahead: int = 25) -> Optional[str]:
     for offset in range(1, lookahead + 1):
@@ -325,6 +320,7 @@ def collect_endpoints(
         primary = record["routes"][0]
         record["file"] = primary.get("file") or ""
         record["line"] = primary.get("line") or 0
+        record["raw_path"], record["base"] = primary.get("raw_path") or "", primary.get("base") or ""
         record["handlers"] = [r["handler"] for r in record["routes"] if r.get("handler")]
 
     return [grouped[key] for key in sorted(grouped)]

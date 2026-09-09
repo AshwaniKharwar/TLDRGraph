@@ -2086,9 +2086,9 @@ function codePlaceholder(reason, item) {
       '<br/><button class="file-btn" data-connect-source>Connect project folder</button></div>';
   }
   if (reason === 'not-found') {
-    return '<div class="code-placeholder">Could not find <code class="md-code">' +
+    return '<div class="code-placeholder">Source file was found, but this route or symbol could not be re-located: <code class="md-code">' +
       escapeHtml(item.name || item.label) + '</code> in <code class="md-code">' +
-      escapeHtml(item.path) + '</code>. The file has probably changed since the last scan.</div>';
+      escapeHtml(item.path) + '</code>. The file may have changed since the last scan.</div>';
   }
   if (reason === 'unreadable') {
     return '<div class="code-placeholder">This file could not be read from the connected source.</div>';
@@ -3706,4 +3706,3 @@ fitToVisible(false);
 requestAnimationFrame(renderLoop);
 initSourceAccess();
 initWorkflowsExplorer();
-

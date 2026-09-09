@@ -46,6 +46,8 @@ def test_generate_visualizer_html_file(mini_repo):
     assert "HIERARCHY =" in content
     assert "LAYERS_CONFIG =" in content
     assert "TLDRGraph" in content
+    assert "findRouteRegistration" in content
+    assert "route_path" in content
 
 
 def test_payload_carries_source_pointers_not_source_text(mini_repo):
@@ -65,6 +67,72 @@ def test_payload_carries_source_pointers_not_source_text(mini_repo):
 
     for module in data["modules"]:
         assert module["path"]
+
+
+def test_endpoint_payload_retains_route_metadata_without_overwriting_file_path(tmp_path):
+    from tldrgraph.visualizer.data import _build_single_node_record
+    from tldrgraph.visualizer.source import SourceIndex
+
+    source_file = tmp_path / "routes.ts"
+    source_file.write_text('router.post("/containers/create", handler);\n', encoding="utf-8")
+
+    node, *_ = _build_single_node_record(
+        {
+            "id": "endpoint_post_containers_create",
+            "label": "POST /containers/create",
+            "display_label": "POST /containers/create",
+            "file": "routes.ts",
+            "source_location": "L1",
+            "layer_id": "api_workflows",
+            "layer": "API Workflows",
+            "kind": "API Endpoint",
+            "method": "post",
+            "path": "/containers/create",
+        },
+        {
+            "api_workflows": {
+                "name": "API Workflows",
+                "color": "#fff",
+                "border": "#fff",
+                "bg": "#000",
+            }
+        },
+        SourceIndex(str(tmp_path)),
+    )
+
+    assert node["path"] == "routes.ts"
+    assert node["route_path"] == "/containers/create"
+    assert node["method"] == "post"
+    assert node["kind"] == "API Endpoint"
+    assert node["code_start"] == 1
+
+
+def test_route_handler_payload_derives_route_metadata_from_handler_label(tmp_path):
+    from tldrgraph.visualizer.data import _build_single_node_record
+    from tldrgraph.visualizer.source import SourceIndex
+
+    (tmp_path / "routes.ts").write_text('router.post("/create", handler);\n', encoding="utf-8")
+    node, *_ = _build_single_node_record(
+        {
+            "id": "route_handler_endpoint_post_containers_create_backend_src_routes_containers_ts_176",
+            "label": "POST /containers/create handler",
+            "file": "routes.ts",
+            "source_location": "L176",
+            "layer_id": "api_workflows",
+            "layer": "API Workflows",
+            "type": "route_handler",
+        },
+        {
+            "api_workflows": {
+                "name": "API Workflows", "color": "#fff", "border": "#fff", "bg": "#000",
+            }
+        },
+        SourceIndex(str(tmp_path)),
+    )
+
+    assert node["method"] == "post"
+    assert node["route_path"] == "/containers/create"
+    assert node["code_start"] == 1
 
 
 def test_file_less_pseudo_nodes_are_dropped(mini_repo):
