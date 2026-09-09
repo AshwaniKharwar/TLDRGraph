@@ -3,7 +3,6 @@ Route extraction and endpoint matching algorithms for TLDRGraph.
 """
 
 from __future__ import annotations
-
 import os
 import re
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
