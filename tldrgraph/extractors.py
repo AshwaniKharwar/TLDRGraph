@@ -104,9 +104,13 @@ class NodeIndex:
         self._lines: Dict[str, List[int]] = {}
         self._ids: Dict[str, List[str]] = {}
         self._file_level: Dict[str, str] = {}
+        self._code_lines: Dict[str, List[int]] = {}
+        self._code_ids: Dict[str, List[str]] = {}
+        self._code_file_level: Dict[str, str] = {}
         self._by_name: Dict[str, Dict[str, str]] = {}
 
         staged: Dict[str, List[Tuple[int, str]]] = {}
+        code_staged: Dict[str, List[Tuple[int, str]]] = {}
         for record in node_records:
             node_id = record.get("id")
             file_path = record.get("file") or ""
@@ -125,15 +129,29 @@ class NodeIndex:
             else:
                 self._file_level.setdefault(file_path, str(node_id))
 
+            is_endpoint = (
+                record.get("type") == ENDPOINT_NODE_TYPE
+                or str(node_id).startswith(ENDPOINT_NODE_PREFIX)
+            )
+            if not is_endpoint:
+                self._code_file_level.setdefault(file_path, str(node_id))
             if line is None:
                 continue
             staged.setdefault(file_path, []).append((line, str(node_id)))
+            if not is_endpoint:
+                code_staged.setdefault(file_path, []).append((line, str(node_id)))
 
         for file_path, entries in staged.items():
             entries.sort(key=lambda item: item[0])
             self._lines[file_path] = [line for line, _ in entries]
             self._ids[file_path] = [node_id for _, node_id in entries]
             self._file_level.setdefault(file_path, entries[0][1])
+
+        for file_path, entries in code_staged.items():
+            entries.sort(key=lambda item: item[0])
+            self._code_lines[file_path] = [line for line, _ in entries]
+            self._code_ids[file_path] = [node_id for _, node_id in entries]
+            self._code_file_level.setdefault(file_path, entries[0][1])
 
     def files(self) -> Iterable[str]:
         return set(self._lines) | set(self._file_level)
@@ -148,6 +166,23 @@ class NodeIndex:
             if position:
                 return self._ids[file_path][position - 1]
         return self._file_level.get(file_path)
+
+    def code_owner_of(self, file_path: str, line: int) -> Optional[str]:
+        """Resolve a source location without selecting generated endpoint nodes."""
+        lines = self._code_lines.get(file_path)
+        if lines:
+            position = bisect.bisect_right(lines, line)
+            if position:
+                return self._code_ids[file_path][position - 1]
+        return self._code_file_level.get(file_path)
+
+    def code_node_at(self, file_path: str, line: int) -> Optional[str]:
+        """Return a real code node declared at exactly ``line`` when present."""
+        lines = self._code_lines.get(file_path, [])
+        position = bisect.bisect_left(lines, line)
+        if position < len(lines) and lines[position] == line:
+            return self._code_ids[file_path][position]
+        return None
 
     def node_named(self, file_path: str, name: str) -> Optional[str]:
         if not name:

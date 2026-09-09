@@ -25,9 +25,31 @@ tldrgraph dead-code                            # review candidates, never a dele
 Those are read-only and never trigger enrichment.
 
 **To build or refresh the graph**, run `tldrgraph init`. It automatically handles
-layer design, extraction, source-aware enrichment in 200-node batches, and dense
-embeddings when a supported agent CLI is available. If it prints a `NEXT ACTION`
-fallback, follow that handoff without guessing from symbol names.
+layer design, extraction, source-aware enrichment in 200-node batches, LLM
+frontend/backend route-link inference, and dense embeddings when a supported
+agent CLI is available. If it prints a `NEXT ACTION` fallback, follow that
+handoff without guessing from symbol names.
+
+### ✅ TLDRGraph Init Completion Contract
+After the user approves a full TLDRGraph enrichment run, the agent MUST keep
+working until `tldrgraph init` reports `status: done` or a genuine blocking error
+requires user action.
+
+- `needs_enrichment`, "nodes remaining", "batches remaining", and "NEXT ACTION"
+  are continuation states, not completion states.
+- Do not end with a progress-only summary such as "I enriched 400 nodes and
+  1,438 remain" unless a blocking error prevents continuation.
+- After each enrichment response is written, immediately run `tldrgraph init`
+  again and repeat the loop.
+- If `status: needs_llm_links` appears, read `.tldrgraph/llm_links_request.yaml`,
+  open the referenced frontend/backend source files, and write
+  `.tldrgraph/llm_links_response.yaml` with evidence-backed
+  `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`
+  entries before running `tldrgraph init` again.
+- If nested-agent protection prevents launching another CLI agent, the current
+  agent is responsible for processing the batch manually.
+- Final responses may summarize progress only after `status: done`, embeddings
+  are completed or explicitly unavailable, or the exact blocker is reported.
 
 Full workflow: `.claude/commands/tldrgraph-init.md` (identical copies live in every
 other agent directory). Schema: `.tldrgraph/AGENT_CONTRACT.md`.

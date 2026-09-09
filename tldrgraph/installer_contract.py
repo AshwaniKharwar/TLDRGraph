@@ -32,7 +32,7 @@ def generate_layers_prose(registry: Optional[LayerRegistry] = None) -> str:
     return "\n".join(lines)
 
 
-_LOOP = """One command does everything -- layers, extraction, enrichment, and embeddings:
+_LOOP = """One command does everything -- layers, extraction, enrichment, LLM route links, and embeddings:
 
 ```bash
 tldrgraph init          # interactive: asks once before enrichment token spend
@@ -40,13 +40,13 @@ tldrgraph init --yes    # approve every current candidate until the campaign is 
 ```
 
 `init` automatically detects a supported agent CLI, uses 200-node enrichment batches,
-and downloads/builds dense embeddings. It never guesses: when no agent is usable it
-preserves the graph and prints a manual layer or enrichment handoff.
+infers evidence-backed frontend/backend route links, and downloads/builds dense embeddings.
+It never guesses: when no agent is usable it prints a manual layer, enrichment, or route-link handoff.
 
 Full approval is persisted across continuation runs. In a nested coding-agent session,
 the host agent must read, answer, and apply every 200-node batch without asking again.
 `--batch 200` means all nodes in chunks; `--limit 200` means only 200 total. Never add
-`--limit` or `--embeddings off` unless the user explicitly requests it.
+`--limit`, `--no-llm-links`, or `--embeddings off` unless the user explicitly requests it.
 
 The underlying steps stay available for scripting:
 
@@ -61,6 +61,8 @@ written out in full."""
 _RULES_SHORT = """- **Read the source file before writing an intent.** You have the repo open -- that is
   the entire reason this path exists. An intent paraphrased from the symbol name is worse
   than none, because it poisons semantic search with confident-sounding noise.
+- **Write every intent in 2-3 complete sentences.** Cover what the symbol does, why it
+  exists, and its source-backed behavior; Markdown headings and list markers do not count.
 - **Never invent `fields` or `calls`. Omit what you cannot verify in the code.** An empty
   list is a correct answer; a wrong `calls` entry becomes a real, wrong edge in the graph.
 - **`calls` are resolved with 2-tier precision.** Exact symbol names
@@ -68,14 +70,17 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
   match with 100% confidence; fallback vector search handles related terms with a 0.35 score floor.
 - **Write the response to a different file than the request.** The request is regenerated
   on every run.
+- **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
+  open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
+  with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
 - **Continue after approval until `status: done`.** A `needs_enrichment` batch is work to
-  process, not a reason to ask again. Do not add `--limit` or `--embeddings off`."""
+  process, not a reason to ask again. Do not add `--limit`, `--no-llm-links`, or `--embeddings off`."""
 
 _RESPONSE_SCHEMA = """```yaml
 - id: "<node id copied verbatim from the request>"
   intent: |
     ### Summary / Role in Markdown
-    What this symbol does, why it exists, and execution logic.
+    Explain what this symbol does and why it exists. Describe its source-backed execution logic.
   input_fields:
     - caseId
     - remarks
@@ -125,7 +130,7 @@ A JSON array of objects -- nothing else, no markdown fence, no commentary:
 {response_schema}
 
 - `id` (**required**) - the node id, verbatim from the request.
-- `intent` - 1-2 sentences of plain English; this is what semantic search matches.
+- `intent` - 2-3 complete sentences of plain English; this is what semantic search matches.
 - `fields` - the form fields / API params / DB columns actually handled.
 - `calls` - the downstream APIs / services / DB tables this symbol reaches.
 

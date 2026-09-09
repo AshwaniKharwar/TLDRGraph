@@ -48,6 +48,7 @@ from .cli_enrichment import (
     write_cursor,
     write_payload,
 )
+from .cli_agent_loop import build_agent_enrichment_prompt
 from .cli_pipeline import (
     APPLIED_RESPONSE_FILENAME,
     STATUS_DONE,
@@ -57,7 +58,6 @@ from .cli_pipeline import (
     STATUS_NEEDS_LAYERS,
     apply_pending_enrichment_response,
     apply_pending_layer_response,
-    build_agent_enrichment_prompt,
     emit_status,
     init_pipeline,
     run_agent_enrichment,
@@ -107,6 +107,8 @@ _init_options = [
                  help="Model for --agent-cli (e.g. opus, sonnet, gemini-2.5-pro). Defaults "
                       "to $TLDRGRAPH_AGENT_MODEL. Ignored on the handshake path, where your "
                       "own agent session picks the model."),
+    click.option("--llm-links/--no-llm-links", default=True, show_default=True,
+                 help="Infer evidence-backed frontend/backend links during init."),
     click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status"),
     embeddings_option,
 ]
@@ -143,23 +145,23 @@ def cli():
 
 @cli.command()
 @_with_init_options
-def init(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, as_json, embeddings):
+def init(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
     """Build layers, extract, enrich, and embed this repository in one command."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, as_json)
+    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
 
 
 @cli.command()
 @_with_init_options
-def scan(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, as_json, embeddings):
+def scan(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
     """Alias for `init`, kept for existing scripts and agent rules."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, as_json)
+    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
 
 
 @cli.command()
 @_with_init_options
-def enrich(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, as_json, embeddings):
+def enrich(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
     """Alias for `init`, which already resumes enrichment where it left off."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, as_json)
+    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
 
 
 @cli.command(name="ui")
@@ -180,7 +182,7 @@ def visualizer_cmd(path, serve, port, open_browser):
 
 @cli.command()
 @click.argument("query_text")
-@click.option("--top-k", default=5, show_default=True, help="Number of flow candidates to return")
+@click.option("--top-k", default=vs_mod.DEFAULT_TOP_K, show_default=True, help="Number of flow candidates to return")
 @click.option("--path", default=".", help="Repository root path")
 @embeddings_option
 def query(query_text, top_k, path, embeddings):

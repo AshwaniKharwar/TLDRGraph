@@ -30,6 +30,9 @@ from tldrgraph.deadcode import (
     entry_point_reason,
 )
 from tldrgraph.graph_loader import BRIDGE_RELATIONS, GraphLoader
+from tldrgraph.layer_config import save_layer_config
+from tldrgraph.layers import Layer, LayerRegistry
+from tldrgraph.rules import Rule
 
 
 # --------------------------------------------------------------------------- #
@@ -208,6 +211,36 @@ def test_fetch_call_picks_up_an_explicit_method():
     assert [(c["method"], c["path"]) for c in calls] == [("post", "/applications/:param")]
 
 
+def test_fetch_wrappers_extract_literal_paths_and_methods_without_dynamic_only_urls():
+    content = """\
+await fetchApi('/orders', { method: 'POST', body });
+await fetchWithAuth('DELETE', '/orders/42');
+await fetchApi(`${baseUrl}${path}`, { method: 'GET' });
+"""
+    calls = ex.extract_frontend_calls("frontend/src/orders.ts", content)
+
+    assert {(c["method"], c["path"], c["kind"]) for c in calls} == {
+        ("post", "/orders", "fetch_wrapper"),
+        ("delete", "/orders/:param", "fetch_wrapper"),
+    }
+
+
+def test_fetch_wrapper_with_typescript_generics_is_extracted():
+    content = """\
+export async function createContainer(userId: string, prompt: string) {
+  return fetchApi<{ success: boolean } & CreateContainerResponse>("/containers/create", {
+    method: "POST",
+    body: JSON.stringify({ userId, prompt }),
+  });
+}
+"""
+    calls = ex.extract_frontend_calls("frontend/src/services/api.ts", content)
+
+    assert [(c["method"], c["path"], c["kind"]) for c in calls] == [
+        ("post", "/containers/create", "fetch_wrapper"),
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Backend routes
 # --------------------------------------------------------------------------- #
@@ -232,6 +265,88 @@ def test_controller_without_a_path_still_yields_absolute_routes():
     content = "@Controller()\nexport class AppController {\n  @Get('csrf-token')\n  token() {}\n}\n"
     routes = ex.extract_backend_routes("app.controller.ts", content)
     assert [(r["method"], r["path"]) for r in routes] == [("get", "/csrf-token")]
+
+
+def test_extract_backend_routes_finds_express_router_calls():
+    content = "const router = express.Router();\nrouter.get('/:projectId', requireAuth, async (req, res) => {});\n"
+    routes = ex.extract_backend_routes("backend/src/routes/deployment.ts", content, ["/api/deployment-config"])
+
+    assert routes == [{
+        "file": "backend/src/routes/deployment.ts",
+        "line": 2,
+        "method": "get",
+        "base": "/api/deployment-config",
+        "raw_path": "/:projectId",
+        "path": "/deployment-config/:param",
+        "handler": None,
+        "callback_line": 2,
+        "framework": "express",
+    }]
+
+
+def test_express_arrow_callback_resolves_to_the_source_owner():
+    content = "router.post('/orders', async (request, response) => response.json({ ok: true }));\n"
+    route = ex.extract_backend_routes("backend/src/orders.ts", content)[0]
+    index = ex.NodeIndex([{
+        "id": "orders_callback", "label": "ordersCallback", "file": "backend/src/orders.ts",
+        "source_location": "L1",
+    }, {
+        "id": "endpoint_post_orders", "label": "POST /orders", "file": "backend/src/orders.ts",
+        "source_location": "L1", "type": "endpoint",
+    }])
+
+    assert route["callback_line"] == 1
+    assert ex.resolve_route_handler(index, route, resolve_express_callback=True) == "orders_callback"
+
+
+def test_express_callback_endpoint_uses_its_registered_body_node_when_no_ast_arrow_exists():
+    route = ex.extract_backend_routes(
+        "backend/src/orders.ts", "router.post('/orders', requireAuth, async (req, res) => {});\n"
+    )[0]
+    route["handler_node_id"] = "route_handler_endpoint_post_orders_backend_src_orders_ts_1"
+    endpoint = {
+        "id": "endpoint_post_orders", "method": "post", "path": "/orders", "routes": [route],
+        "call_sites": [],
+    }
+    index = ex.NodeIndex([{
+        "id": "file_owner", "label": "orders.ts", "file": "backend/src/orders.ts",
+        "source_location": "L2",
+    }])
+
+    edges = ex.build_endpoint_edges([endpoint], index)
+
+    assert edges == [{
+        "source": "endpoint_post_orders",
+        "target": "route_handler_endpoint_post_orders_backend_src_orders_ts_1",
+        "relation": ex.HANDLED_BY_RELATION,
+        "confidence": 1.0,
+        "method": "post",
+        "path": "/orders",
+        "handler": "",
+    }]
+
+
+def test_collect_backend_routes_composes_express_mount_prefixes(tmp_path):
+    (tmp_path / "backend/src").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "backend/src/index.ts").write_text(
+        'import deploymentRoutes from "./routes/deployment";\n'
+        'app.use("/api/deployment-config", deploymentRoutes);\n'
+        'app.get("/health", (_req, res) => res.json({ ok: true }));\n',
+        encoding="utf-8",
+    )
+    route_file = tmp_path / "backend/src/routes/deployment.ts"
+    route_file.parent.mkdir(parents=True, exist_ok=True)
+    route_file.write_text(
+        "const router = express.Router();\n"
+        "router.get('/:projectId/deployment-status/:deploymentId', requireAuth, async () => {});\n",
+        encoding="utf-8",
+    )
+
+    routes = ex.collect_backend_routes(str(tmp_path))
+    found = {(r["method"], r["path"], r["framework"]) for r in routes}
+
+    assert ("get", "/deployment-config/:param/deployment-status/:param", "express") in found
+    assert ("get", "/health", "express") in found
 
 
 # --------------------------------------------------------------------------- #
@@ -690,6 +805,34 @@ def test_prisma_models_become_real_layer_4_nodes(seam_loader, seam_repo):
     )
     assert node["fields"][:2] == ["id", "name"]
     assert seam_loader.prisma_model_count == 4
+
+
+def test_generated_nodes_follow_project_specific_layer_rules(seam_repo, monkeypatch):
+    for var in ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "LLM_PROVIDER"):
+        monkeypatch.delenv(var, raising=False)
+    (seam_repo / ".github/workflows").mkdir(parents=True, exist_ok=True)
+    (seam_repo / ".github/workflows/build.yml").write_text("name: build\n", encoding="utf-8")
+    (seam_repo / "backend/src/routes").mkdir(parents=True, exist_ok=True)
+    (seam_repo / "backend/src/routes/orders.ts").write_text(
+        "router.post('/orders', async (req, res) => res.json({ ok: true }));\n", encoding="utf-8"
+    )
+    registry = LayerRegistry([
+        Layer("delivery", "API Delivery", 1, rules=(Rule(type_in=("endpoint", "route_handler")),)),
+        Layer("persistence", "Persistence", 2, rules=(Rule(type_in=("db_model",)),)),
+        Layer("operations", "Operations", 3, rules=(Rule(type_in=("infra_config",)),)),
+        Layer("shared", "Shared Support", 4),
+    ], utility_id="shared")
+    save_layer_config(str(seam_repo), registry)
+
+    loader = GraphLoader(str(seam_repo))
+    graph = loader.load_or_extract(enrich_llm=False, rebuild=True)
+
+    assert graph.nodes["endpoint_get_applications"]["layer_id"] == "delivery"
+    assert graph.nodes["prisma_model_office"]["layer_id"] == "persistence"
+    assert graph.nodes["devops__github_workflows_build_yml"]["layer_id"] == "operations"
+    handler_nodes = [data for _, data in graph.nodes(data=True) if data.get("type") == "route_handler"]
+    assert len(handler_nodes) == 1
+    assert handler_nodes[0]["layer_id"] == "delivery"
 
 
 def test_model_nodes_are_live_dicts_in_the_index_and_layer_bucket(seam_loader):

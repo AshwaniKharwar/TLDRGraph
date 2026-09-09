@@ -36,7 +36,7 @@ Return ONLY a JSON array, no prose and no markdown fence, of this shape:
 [
   {{
     "id": "<node id copied verbatim>",
-    "intent": "What this symbol does, why it exists, and its execution logic. Markdown allowed.",
+    "intent": "Two to three complete sentences explaining what this symbol does, why it exists, and its source-backed execution logic. Markdown allowed.",
     "input_fields": ["argument", "payloadField"],
     "output_fields": ["returnedField", "emittedEvent"],
     "calls": ["DownstreamService", "src/services/calc.ts:calculate", "some_table"]
@@ -44,7 +44,7 @@ Return ONLY a JSON array, no prose and no markdown fence, of this shape:
 ]
 
 Include every id exactly once. If a file is unreadable or the symbol is trivial,
-still return the id with a short honest intent and empty field/call lists.
+still return the id with an honest 2-3 sentence intent and empty field/call lists.
 
 Repository root: {root}
 
@@ -95,6 +95,10 @@ def _process_single_agent_batch(
     totals["applied"] += len(stats["applied_ids"])
     totals["bridges"] += stats["bridges"]
     totals["unresolved"] += len(stats["unresolved"])
+    totals["intent_length_violations"] += len(stats["intent_length_violations"])
+    if stats["intent_length_violations"]:
+        preview = ", ".join(stats["intent_length_violations"][:3])
+        click.echo(f"   ⚠️  {len(stats['intent_length_violations'])} intent(s) outside the recommended 2-3 sentences: {preview}")
 
     if not stats["applied_ids"]:
         errors.append("agent returned ids that are not in the graph")
@@ -121,7 +125,7 @@ def run_agent_enrichment(
     max_nodes: int = 0,
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
-    totals = {"applied": 0, "bridges": 0, "unresolved": 0, "batches": 0, "failed_batches": 0}
+    totals = {"applied": 0, "bridges": 0, "unresolved": 0, "intent_length_violations": 0, "batches": 0, "failed_batches": 0}
     errors: List[str] = []
     processed = 0
 

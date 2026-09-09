@@ -108,6 +108,40 @@ def _build_nodes():
     return nodes
 
 
+def _write_fixture_sources(root: Path):
+    files = {
+        UI_FILE_PATH: (
+            "export function DeskView() {\n"
+            "  return <main />;\n"
+            "}\n"
+        ),
+        "backend/src/orders/orders.controller.ts": (
+            "export class OrdersController {\n"
+            "  findAll() {}\n"
+            "}\n"
+        ),
+        "backend/src/orders/orders.service.ts": (
+            "export class OrdersService {\n"
+            "  list() {}\n"
+            "}\n"
+        ),
+        "backend/src/prisma/prisma.service.ts": (
+            "export class PrismaService {\n"
+            "  user = {};\n"
+            "}\n"
+        ),
+        "backend/src/reports/reports.service.ts": (
+            "export class ReportsService {\n"
+            "  list() {}\n"
+            "}\n"
+        ),
+    }
+    for rel_path, content in files.items():
+        path = root / rel_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+
+
 @pytest.fixture()
 def flow_graph():
     graph = nx.DiGraph()
@@ -132,6 +166,7 @@ def flow_graph():
 
 @pytest.fixture()
 def engine(flow_graph, tmp_path):
+    _write_fixture_sources(tmp_path)
     store = LocalVectorStore(str(tmp_path / ".tldrgraph" / "vector_index.json"))
     store.add_documents([dict(data) for _, data in flow_graph.nodes(data=True)])
     return FlowEngine(flow_graph, store, root_dir=str(tmp_path))
@@ -352,6 +387,20 @@ def test_query_flow_keeps_the_keys_cli_consumes(engine):
             assert key in res
 
 
+def test_query_flow_defaults_to_shared_top_k():
+    captured = {}
+
+    class CapturingStore:
+        def search(self, query, top_k):
+            captured["query"] = query
+            captured["top_k"] = top_k
+            return []
+
+    engine = FlowEngine(nx.DiGraph(), CapturingStore())
+    assert engine.query_flow("DeskView") == []
+    assert captured == {"query": "DeskView", "top_k": fe.DEFAULT_TOP_K}
+
+
 # --------------------------------------------------------------------------- #
 # Public shape / bridge relation wiring
 # --------------------------------------------------------------------------- #
@@ -363,6 +412,7 @@ def test_bridge_relations_come_from_the_loader_and_tolerate_new_names():
     # The deterministic relations another producer is adding in parallel are
     # prioritised the moment they show up, and their absence is not an error.
     assert {"http_route_link", "db_model_link"} <= fe.BRIDGE_RELATIONS
+    assert "llm_http_route_link" in fe.BRIDGE_RELATIONS
 
 
 def test_deterministic_bridge_relation_gets_priority(flow_graph, tmp_path):
@@ -384,14 +434,55 @@ def test_trace_path_keeps_the_keys_cli_consumes(engine):
 
 def test_format_node_step_shape_is_unchanged(engine):
     step = engine._format_node_step(API_CTRL)
-    assert set(step) == {"id", "label", "layer_id", "layer", "file", "is_test", "intent", "input_fields", "output_fields", "fields"}
+    assert set(step) == {
+        "id", "label", "layer_id", "layer", "file", "source_location", "line",
+        "code_start", "code_end", "is_test", "intent", "input_fields",
+        "output_fields", "fields",
+    }
     assert step["label"] == "OrdersController"
+    assert step["source_location"] == "L1"
+    assert step["line"] == 1
+    assert step["code_start"] == 1
+    assert step["code_end"] == 3
 
 
 def test_render_markdown_table_still_renders(engine):
     table = FlowEngine.render_markdown_table(engine.trace_path("DeskView")["steps"])
     assert "Component / Symbol" in table
     assert "OrdersController" in table
+    assert "backend/src/orders/orders.controller.ts:1-3" in table
+
+
+def test_render_markdown_table_uses_single_line_when_range_collapses():
+    table = FlowEngine.render_markdown_table([
+        {
+            "layer": L3,
+            "label": "OneLineService",
+            "intent": "One line data",
+            "file": "backend/src/one-line.service.ts",
+            "line": 7,
+            "code_start": 7,
+            "code_end": 7,
+        }
+    ])
+    assert "backend/src/one-line.service.ts:7" in table
+    assert "backend/src/one-line.service.ts:7-7" not in table
+
+
+def test_render_markdown_table_omits_line_suffix_when_unknown():
+    table = FlowEngine.render_markdown_table([
+        {
+            "layer": L3,
+            "label": "NoLineService",
+            "intent": "No line data",
+            "file": "backend/src/no-line.service.ts",
+            "line": None,
+            "code_start": 0,
+            "code_end": 0,
+        }
+    ])
+    assert "backend/src/no-line.service.ts" in table
+    assert "backend/src/no-line.service.ts:None" not in table
 
 
 def test_export_flows_yaml_round_trips(engine, tmp_path):
@@ -402,3 +493,4 @@ def test_export_flows_yaml_round_trips(engine, tmp_path):
     assert os.path.exists(out)
     loaded = yaml.safe_load(Path(out).read_text(encoding="utf-8"))
     assert len(loaded["flows"]) == len(flows)
+    assert loaded["flows"][0]["flow"][0]["code_end"] >= loaded["flows"][0]["flow"][0]["code_start"]

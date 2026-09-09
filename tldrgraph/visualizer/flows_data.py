@@ -113,6 +113,7 @@ SUPPORT_PER_STEP = 6
 
 # Callers that exist to exercise the code rather than take part in it.
 NON_PRODUCT_DIRS = ("tests/", "test/", "benchmarks/", "scripts/")
+ROUTE_LINK_PRIORITY = ("llm_http_route_link", "http_route_link", "calls_endpoint")
 
 
 def _collect_curated_steps(
@@ -243,13 +244,59 @@ def _resolved_ratio(steps: List[Dict[str, Any]], nodes_by_id: Dict[str, Dict[str
     return real / len(steps)
 
 
+def _step_file(step: Dict[str, Any], nodes_by_id: Dict[str, Dict[str, Any]]) -> str:
+    node = nodes_by_id.get(step.get("node_id")) or {}
+    return str(step.get("file") or node.get("file") or "").replace("\\", "/").lower()
+
+
+def _is_frontend_file(file_path: str) -> bool:
+    return any(part in file_path for part in ("frontend/", "/app/", "/pages/", "/components/"))
+
+
+def _is_backend_file(file_path: str) -> bool:
+    return any(part in file_path for part in ("backend/", "/api/", "/routes/", "controller", "/services/"))
+
+
+def _preferred_route_link(
+    workflow: Dict[str, Any],
+    nodes_by_id: Dict[str, Dict[str, Any]],
+) -> Optional[str]:
+    steps = workflow.get("steps") or []
+    by_id = {s.get("node_id"): s for s in steps}
+
+    for relation in ROUTE_LINK_PRIORITY:
+        for step in steps:
+            if step.get("via_relation") != relation:
+                continue
+            previous = by_id.get(step.get("from_node"))
+            if not previous:
+                continue
+            if _is_frontend_file(_step_file(previous, nodes_by_id)) and _is_backend_file(_step_file(step, nodes_by_id)):
+                return relation
+    return None
+
+
+def _feature_workflow(
+    workflow: Dict[str, Any],
+    nodes_by_id: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    route_relation = _preferred_route_link(workflow, nodes_by_id)
+    if not route_relation:
+        return None
+    return {
+        **workflow,
+        "feature_flow": True,
+        "completeness": "frontend_to_backend",
+        "route_link_relation": route_relation,
+    }
+
+
 def extract_visualizer_workflows(
     graph: nx.DiGraph,
     nodes_by_id: Dict[str, Dict[str, Any]],
     sources: SourceIndex,
-    max_workflows: int = 20,
 ) -> List[Dict[str, Any]]:
-    """Workflows for this repository: the curated ones first, then what we find.
+    """Workflows for this repository: curated ones first, then every discovery.
 
     The blueprints describe TLDRGraph's own journeys, so on any other repository
     they resolve to nothing and are dropped. Discovery then reads the call graph
@@ -262,21 +309,17 @@ def extract_visualizer_workflows(
         wf = _build_curated_workflow(bp, graph, nodes_by_id, sources)
         # A blueprint that barely matches is describing a different codebase.
         # Half its steps resolving is the line: a foreign repo scores near zero.
-        if wf and _resolved_ratio(wf["steps"], nodes_by_id) >= 0.5 and len(workflows) < max_workflows:
+        if wf and _resolved_ratio(wf["steps"], nodes_by_id) >= 0.5:
             workflows.append(wf)
 
-    if len(workflows) < max_workflows:
-        def format_step(node_id: str, step_number: int) -> Dict[str, Any]:
-            return _format_step_record(node_id, graph, nodes_by_id, sources, step_number, "")
+    def format_step(node_id: str, step_number: int) -> Dict[str, Any]:
+        return _format_step_record(node_id, graph, nodes_by_id, sources, step_number, "")
 
-        def collect_support(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            return _collect_support_nodes(graph, nodes_by_id, steps)
+    def collect_support(steps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return _collect_support_nodes(graph, nodes_by_id, steps)
 
-        found = discover_workflows(
-            graph, nodes_by_id, format_step, collect_support,
-            limit=max_workflows - len(workflows),
-        )
-        taken = {w["root_id"] for w in workflows}
-        workflows.extend(w for w in found if w["root_id"] not in taken)
+    found = discover_workflows(graph, nodes_by_id, format_step, collect_support)
+    taken = {w["root_id"] for w in workflows}
+    workflows.extend(w for w in found if w["root_id"] not in taken)
 
-    return workflows
+    return [wf for wf in (_feature_workflow(w, nodes_by_id) for w in workflows) if wf]

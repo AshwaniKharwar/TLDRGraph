@@ -17,6 +17,7 @@ from .graph_loader import (
     bridge_score_floor,
     resolve_call_target,
 )
+from .intent_quality import has_recommended_intent_length
 from .layers import get_registry, layer_id_of
 
 try:
@@ -151,7 +152,7 @@ def enrichment_candidates(loader: GraphLoader, degrees: Dict[str, Tuple[int, int
 def enrichment_instructions() -> List[str]:
     return [
         "Open and READ each node's source file before writing its intent - you have the repo.",
-        "Write 'intent' in Markdown (single-line summary or rich multiline markdown). Add as much context as needed.",
+        "Write 'intent' in Markdown using 2-3 complete sentences: explain what the symbol does, why it exists, and its source-backed behavior.",
         "In 'input_fields', list input arguments, parameters, payload attributes, or request body fields.",
         "In 'output_fields', list return values, response schemas, emitted event names, or mutated state fields.",
         "In 'calls', specify exact downstream targets: node ID, file:symbol (e.g. 'src/services/calc.ts:calculate'), file path, or symbol name.",
@@ -312,6 +313,7 @@ def apply_enrichment_items(
     applied_ids: List[str] = []
     unknown_ids: List[str] = []
     unresolved: List[str] = []
+    intent_length_violations: List[str] = []
     bridges = 0
 
     for item in items:
@@ -325,6 +327,8 @@ def apply_enrichment_items(
 
         bridges += _apply_single_node_enrichment(loader, item, nid, floor, unresolved)
         applied_ids.append(nid)
+        if item.get("intent") and not has_recommended_intent_length(item["intent"]):
+            intent_length_violations.append(nid)
 
     loader.vector_store.add_documents(loader.docs_to_index)
     stamp_degrees(loader)
@@ -341,6 +345,7 @@ def apply_enrichment_items(
         "unknown_ids": unknown_ids,
         "bridges": bridges,
         "unresolved": unresolved,
+        "intent_length_violations": intent_length_violations,
         "floor": floor,
         "snapshot_path": snapshot_path,
     }

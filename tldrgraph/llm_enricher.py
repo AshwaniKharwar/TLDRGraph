@@ -31,7 +31,7 @@ Analyze the following batch of code symbols across {layer_count} architectural l
 
 For each symbol provided, return a JSON object with:
 1. "id": exact node ID provided
-2. "intent": A crisp, 1-2 sentence plain-English explanation of what this symbol does
+2. "intent": A crisp, 2-3 sentence plain-English explanation of what this symbol does, why it exists, and its behavior
 3. "fields": Array of key parameters, fields, configuration keys, or schema columns handled
 4. "calls": Array of downstream services, modules, APIs, or data stores this symbol connects to
 

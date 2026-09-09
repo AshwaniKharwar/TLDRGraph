@@ -40,6 +40,7 @@ PROSE_MIN_WORDS = 3
 DENSE_WEIGHT_IDENTIFIER = 0.15
 DENSE_WEIGHT_PROSE = 0.60
 DENSE_BASELINE = 0.55
+DEFAULT_TOP_K = 10
 
 SCORE_FLOORS: Dict[str, float] = {
     BACKEND_TFIDF: 0.35,
@@ -254,7 +255,7 @@ class LocalVectorStore:
         rescaled = (cosines - DENSE_BASELINE) / (1.0 - DENSE_BASELINE)
         return np.clip(rescaled, 0.0, 1.0)
 
-    def search(self, query: str, top_k: int = 5) -> List[Tuple[Dict[str, Any], float]]:
+    def search(self, query: str, top_k: int = DEFAULT_TOP_K) -> List[Tuple[Dict[str, Any], float]]:
         if not self.documents or not query:
             return []
 

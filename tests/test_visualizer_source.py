@@ -61,6 +61,48 @@ JS_SAMPLE = textwrap.dedent(
     """
 )
 
+PRISMA_SAMPLE = textwrap.dedent(
+    """\
+    datasource db {
+      provider = "postgresql"
+      url      = env("DATABASE_URL")
+    }
+
+    model Project {
+      id        String @id
+      name      String
+      user      User   @relation(fields: [userId], references: [id])
+      userId    String
+    }
+
+    model User {
+      id String @id
+    }
+    """
+)
+
+ROUTE_SAMPLE = textwrap.dedent(
+    """\
+    import { Router } from "express";
+
+    const router = Router();
+
+    router.get("/containers/create", listContainers);
+
+    router.post("/containers/create", async (req, res) => {
+      await createContainer(req.body);
+      return res.json({ ok: true });
+    });
+
+    app.post(
+      '/single-quoted',
+      handler,
+    );
+
+    router.delete("/gone", removeContainer);
+    """
+)
+
 
 def _index(tmp_path, name, body):
     (tmp_path / name).write_text(body, encoding="utf-8")
@@ -121,6 +163,16 @@ def test_slices_brace_language_by_balancing_braces(tmp_path):
     assert got["language"] == "javascript"
 
 
+def test_slices_prisma_model_declaration(tmp_path):
+    idx = _index(tmp_path, "schema.prisma", PRISMA_SAMPLE)
+    got = idx.slice_symbol("schema.prisma", "L6", "Project")
+
+    assert got["start"] == 6
+    assert got["code"].startswith("model Project {")
+    assert "userId    String" in got["code"]
+    assert "model User" not in got["code"]
+
+
 def test_stale_line_is_re_resolved_by_symbol_name(tmp_path):
     """A snapshot line pointing at unrelated code must not be trusted."""
     idx = _index(tmp_path, "mod.py", PY_SAMPLE)
@@ -134,6 +186,46 @@ def test_stale_line_is_re_resolved_by_symbol_name(tmp_path):
 def test_unknown_symbol_yields_no_code_rather_than_wrong_code(tmp_path):
     idx = _index(tmp_path, "mod.py", PY_SAMPLE)
     assert idx.slice_symbol("mod.py", "L1", "does_not_exist") is None
+
+
+def test_locates_route_registration_by_method_and_path(tmp_path):
+    idx = _index(tmp_path, "routes.ts", ROUTE_SAMPLE)
+    got = idx.slice_symbol(
+        "routes.ts", "L7", "POST /containers/create", "post", "/containers/create"
+    )
+
+    assert got["start"] == 7
+    assert 'router.post("/containers/create"' in got["code"]
+    assert 'router.get("/containers/create"' not in got["code"]
+
+
+def test_locates_single_quoted_multiline_route_registration(tmp_path):
+    idx = _index(tmp_path, "routes.ts", ROUTE_SAMPLE)
+    got = idx.locate_symbol("routes.ts", "L12", "POST /single-quoted", "post", "/single-quoted")
+
+    assert got["start"] == 12
+    assert got["relocated"] is False
+
+
+def test_stale_route_line_is_re_resolved_by_method_and_path(tmp_path):
+    idx = _index(tmp_path, "routes.ts", ROUTE_SAMPLE)
+    got = idx.locate_symbol("routes.ts", "L1", "POST /containers/create", "post", "/containers/create")
+
+    assert got["start"] == 7
+    assert got["relocated"] is True
+
+
+def test_mounted_route_resolves_to_local_router_literal(tmp_path):
+    idx = _index(tmp_path, "routes.ts", 'router.post("/create", handler);\n')
+    got = idx.locate_symbol("routes.ts", "L7", "POST /containers/create", "post", "/containers/create")
+
+    assert got["start"] == 1
+
+
+def test_missing_route_yields_no_code_rather_than_wrong_route(tmp_path):
+    idx = _index(tmp_path, "routes.ts", ROUTE_SAMPLE)
+
+    assert idx.slice_symbol("routes.ts", "L7", "POST /missing", "post", "/missing") is None
 
 
 def test_missing_file_and_pseudo_paths_are_safe(tmp_path):

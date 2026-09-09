@@ -213,6 +213,7 @@ def run_apply_enrichment(path: str, enrichment_file: Optional[str]) -> None:
     applied_ids = stats["applied_ids"]
     unknown_ids = stats["unknown_ids"]
     unresolved = stats["unresolved"]
+    intent_length_violations = stats["intent_length_violations"]
     still_pending = sum(1 for _, d in loader.graph.nodes(data=True) if needs_agent_enrichment(d))
 
     click.echo(f"✅ Applied {len(applied_ids)} enrichment(s) from {enrichment_file}")
@@ -223,6 +224,9 @@ def run_apply_enrichment(path: str, enrichment_file: Optional[str]) -> None:
     if unknown_ids:
         preview = ", ".join(unknown_ids[:3])
         click.echo(f"⚠️  {len(unknown_ids)} id(s) not in the graph, skipped: {preview}")
+    if intent_length_violations:
+        preview = ", ".join(intent_length_violations[:6])
+        click.echo(f"⚠️  {len(intent_length_violations)} intent(s) outside the recommended 2-3 sentences: {preview}")
     click.echo(f"💾 Graph snapshot updated at: {stats['snapshot_path']}")
     click.echo(f"📊 {still_pending} candidate(s) still un-enriched. Run `tldrgraph queue-enrichment` for the next batch.")
 

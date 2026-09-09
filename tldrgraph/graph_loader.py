@@ -33,6 +33,7 @@ from .layers import (
     layer_id_of,
 )
 from .llm_enricher import LLMEnricher
+from .llm_route_inference import LLM_HTTP_ROUTE_RELATION
 from .node_registrar import (
     apply_deterministic_edges,
     register_endpoint_nodes,
@@ -56,7 +57,7 @@ from .snapshot_sync import (
 )
 from .vector_store import BACKEND_TFIDF, SCORE_FLOORS, LocalVectorStore
 
-BRIDGE_RELATIONS = {"llm_cross_layer_link", "cross_layer_link"}
+BRIDGE_RELATIONS = {"llm_cross_layer_link", "cross_layer_link", LLM_HTTP_ROUTE_RELATION}
 DETERMINISTIC_RELATIONS = {
     extractors.HTTP_ROUTE_RELATION,
     extractors.DB_MODEL_RELATION,

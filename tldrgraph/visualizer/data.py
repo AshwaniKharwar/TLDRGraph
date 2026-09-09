@@ -56,6 +56,8 @@ def _extract_snapshot(root_dir: str) -> Dict[str, Any]:
             "is_test": data.get("is_test", is_test_node(data.get("file", ""), data.get("label", str(nid)))),
             "source_location": data.get("source_location"), "dead_code_status": data.get("dead_code_status", "live"),
             "dead_code_reason": data.get("dead_code_reason", ""),
+            "kind": data.get("kind"), "method": data.get("method"), "path": data.get("path"),
+            "raw_path": data.get("raw_path"), "base": data.get("base"),
         }
         for nid, data in loader.graph.nodes(data=True)
     ]
@@ -145,22 +147,21 @@ def _module_id_for(fpath: str) -> str:
     return f"mod_{re.sub(r'[^a-zA-Z0-9_]', '_', fpath)}"
 
 
-def _build_single_node_record(
-    n: Dict[str, Any],
-    layer_map: Dict[str, Dict[str, Any]],
-    sources: SourceIndex,
-) -> Tuple[Dict[str, Any], str, str, bool, Dict[str, Any]]:
+def _build_single_node_record(n: Dict[str, Any], layer_map: Dict[str, Dict[str, Any]], sources: SourceIndex) -> Tuple[Dict[str, Any], str, str, bool, Dict[str, Any]]:
     nid = str(n["id"])
     fpath = (n.get("file") or "").strip()
     lid = n.get("layer_id") or "utility"
     layer_info = layer_map.get(lid, FALLBACK_COLOR)
     label = n.get("label") or nid
     display_label = n.get("display_label") or label
+    route = re.match(r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS|ALL)\s+(/\S+?)(?:\s+handler)?$", display_label)
+    method = str(n.get("method") or (route.group(1).lower() if route else ""))
     test_flag = bool(n.get("is_test", is_test_node(fpath, label)))
     mod_id = _module_id_for(fpath)
-    located = sources.locate_symbol(
-        fpath, n.get("source_location"), symbol_name(label, display_label)
-    ) or {}
+    route_path = str(n.get("path") or (route.group(2) if route else "")).strip() if method else ""
+    raw_path = str(n.get("raw_path") or "").strip()
+    located = sources.locate_symbol(fpath, n.get("source_location"), symbol_name(label, display_label),
+                                    method, route_path, raw_path) or {}
 
     node_rec = {
         "id": nid, "label": label, "display_label": display_label, "file": fpath,
@@ -174,8 +175,10 @@ def _build_single_node_record(
         "code_relocated": bool(located.get("relocated", False)), "module_id": mod_id,
         "inbound": [], "outbound": [],
     }
+    node_rec.update({k: v for k, v in {
+        "kind": n.get("kind"), "method": method, "route_path": route_path, "raw_path": raw_path,
+    }.items() if v})
     return node_rec, mod_id, lid, test_flag, layer_info
-
 
 def _ensure_module_record(
     modules_by_id: Dict[str, Dict[str, Any]],

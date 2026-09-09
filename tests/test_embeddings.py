@@ -26,6 +26,7 @@ from tldrgraph.graph_loader import BRIDGE_SCORE_FLOOR, bridge_score_floor
 from tldrgraph.vector_store import (
     BACKEND_HYBRID,
     BACKEND_TFIDF,
+    DEFAULT_TOP_K,
     DenseEmbedder,
     INDEX_FORMAT_VERSION,
     LocalVectorStore,
@@ -232,6 +233,24 @@ def test_broken_embedder_degrades_to_tfidf(tfidf_store, monkeypatch):
     assert tfidf_store._dense_scores("anything") is None
     hits = tfidf_store.search("PensionCalculatorService", top_k=1)
     assert hits and hits[0][0]["id"] == "svc_pension"
+
+
+def test_default_search_limit_is_ten(index_path):
+    store = LocalVectorStore(index_path, embeddings="off")
+    store.add_documents([
+        {
+            "id": f"shared_{i}",
+            "label": f"SharedResult{i}",
+            "layer": "Utility & Shared",
+            "file": f"shared/result_{i}.ts",
+            "intent": "shared retrieval result",
+            "fields": [],
+        }
+        for i in range(DEFAULT_TOP_K + 2)
+    ])
+
+    assert len(store.search("shared retrieval result")) == DEFAULT_TOP_K
+    assert len(store.search("shared retrieval result", top_k=3)) == 3
 
 
 def test_model_present_probe_is_filesystem_only(tmp_path):

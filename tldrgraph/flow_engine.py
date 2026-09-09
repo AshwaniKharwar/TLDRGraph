@@ -31,7 +31,8 @@ from .flow_traversal import (
 )
 from .hierarchy import is_test_node
 from .layers import get_registry, layer_id_of
-from .vector_store import LocalVectorStore
+from .vector_store import DEFAULT_TOP_K, LocalVectorStore
+from .visualizer.source import SourceIndex, parse_line_number, symbol_name
 
 
 class FlowEngine:
@@ -39,6 +40,7 @@ class FlowEngine:
         self.graph = graph
         self.vector_store = vector_store
         self.root_dir = root_dir
+        self.source_index = SourceIndex(root_dir)
 
     @staticmethod
     def _normalize_label(text: str) -> str:
@@ -163,7 +165,7 @@ class FlowEngine:
             result.update(unreachable)
         return result
 
-    def query_flow(self, query_text: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def query_flow(self, query_text: str, top_k: int = DEFAULT_TOP_K) -> List[Dict[str, Any]]:
         """Hybrid semantic search + downstream flow expansion."""
         matches = self.vector_store.search(query_text, top_k=top_k)
         results = []
@@ -186,18 +188,30 @@ class FlowEngine:
 
     def _format_node_step(self, node_id: str) -> Dict[str, Any]:
         node_data = self.graph.nodes.get(node_id, {})
+        label = node_data.get("label", node_id)
+        display_label = node_data.get("display_label") or label
+        file_path = node_data.get("file", "")
         input_fields = node_data.get("input_fields", [])
         output_fields = node_data.get("output_fields", [])
         fields = node_data.get("fields", []) or (list(input_fields) + list(output_fields))
+        source_location = node_data.get("source_location")
+        located = self.source_index.locate_symbol(
+            file_path, source_location, symbol_name(label, display_label)
+        ) or {}
+        line = located.get("start") or parse_line_number(source_location)
         is_test = node_data.get("is_test")
         if is_test is None:
-            is_test = is_test_node(node_data.get("file", ""), node_data.get("label", ""))
+            is_test = is_test_node(file_path, label)
         return {
             "id": node_id,
-            "label": node_data.get("label", node_id),
+            "label": label,
             "layer_id": self._layer_id_of(node_id),
             "layer": node_data.get("layer", "Unknown"),
-            "file": node_data.get("file", ""),
+            "file": file_path,
+            "source_location": source_location,
+            "line": line,
+            "code_start": located.get("start", 0),
+            "code_end": located.get("end", 0),
             "is_test": bool(is_test),
             "intent": node_data.get("intent") or node_data.get("summary", ""),
             "input_fields": input_fields,
@@ -215,6 +229,17 @@ class FlowEngine:
     @staticmethod
     def render_markdown_table(steps: List[Dict[str, Any]]) -> str:
         headers = ["Layer", "Component / Symbol", "Intent & Action", "Input Fields", "Output Fields", "File Location"]
+
+        def file_location(step: Dict[str, Any]) -> str:
+            file_path = step.get("file", "")
+            start = step.get("code_start") or step.get("line")
+            end = step.get("code_end")
+            if file_path and start and end and end != start:
+                return f"{file_path}:{start}-{end}"
+            if file_path and start:
+                return f"{file_path}:{start}"
+            return file_path
+
         rows = [
             [
                 s.get("layer", ""),
@@ -222,7 +247,7 @@ class FlowEngine:
                 s.get("intent", ""),
                 ", ".join(s.get("input_fields", [])) if s.get("input_fields") else (", ".join(s.get("fields", [])) if s.get("fields") else "-"),
                 ", ".join(s.get("output_fields", [])) if s.get("output_fields") else "-",
-                s.get("file", ""),
+                file_location(s),
             ]
             for s in steps
         ]

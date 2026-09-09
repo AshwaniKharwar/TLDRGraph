@@ -277,11 +277,17 @@ def _is_enrichment_prompt(prompt: str) -> bool:
     return "Nodes (" in prompt
 
 
+def _is_llm_links_prompt(prompt: str) -> bool:
+    return "frontend-to-backend API links" in prompt
+
+
 def _fake_answer(prompt: str) -> str:
     """
     One fake agent for the whole run: it designs layers when asked for layers,
     and enriches every node id when asked for enrichment.
     """
+    if _is_llm_links_prompt(prompt):
+        return "[]"
     if not _is_enrichment_prompt(prompt):
         return json.dumps(VALID_LAYER_SET)
 
@@ -290,7 +296,7 @@ def _fake_answer(prompt: str) -> str:
     return json.dumps([
         {
             "id": node["id"],
-            "intent": f"Reads and returns the {node['label']} result.",
+            "intent": f"Reads the {node['label']} result from the source. Returns that result to its caller.",
             "input_fields": ["alpha"],
             "output_fields": ["beta"],
             "calls": [],
@@ -575,6 +581,88 @@ def test_agent_cli_runs_the_whole_loop_when_asked(monkeypatch, cli_repo, agent_a
     assert "status: done" in res.output
     snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
     assert any(n.get("enrichment_source") == "agent" for n in snapshot["nodes"])
+
+
+def test_agent_cli_infers_llm_route_links_during_init(monkeypatch, cli_repo, agent_allowed):
+    (cli_repo / "frontend/src/orders").mkdir(parents=True)
+    (cli_repo / "backend/src").mkdir(parents=True)
+    (cli_repo / "frontend/src/orders/page.tsx").write_text(
+        "export function OrdersPage() { return getOrders() }\n", encoding="utf-8"
+    )
+    (cli_repo / "backend/src/orders.controller.ts").write_text(
+        "@Controller('orders')\nexport class OrdersController {\n"
+        "  @Get()\n  findAll() { return [] }\n}\n",
+        encoding="utf-8",
+    )
+
+    def _answer(prompt):
+        if _is_llm_links_prompt(prompt):
+            payload = json.loads(prompt[prompt.index("Candidate context:") + len("Candidate context:"):])
+            src = payload["frontend_nodes"][0]
+            tgt = payload["backend_nodes"][0]
+            return json.dumps([{
+                "source": src["id"],
+                "target": tgt["id"],
+                "confidence": 0.84,
+                "frontend_evidence": {"file": src["file"], "line": src["line"] or 1},
+                "backend_evidence": {"file": tgt["file"], "line": tgt["line"] or 1},
+                "explanation": "The frontend orders page semantically loads data served by the orders controller.",
+            }])
+        return _fake_answer(prompt)
+
+    _stub_agent_cli(monkeypatch, answer=_answer)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+
+    assert res.exit_code == 0, res.output
+    snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
+    edges = [e for e in snapshot["edges"] if e.get("relation") == "llm_http_route_link"]
+    assert edges
+    assert edges[0]["confidence"] == 0.84
+    assert edges[0]["frontend_file"].endswith("page.tsx")
+
+
+def test_no_llm_links_flag_skips_route_inference(monkeypatch, cli_repo, agent_allowed):
+    calls = []
+
+    def _answer(prompt):
+        if _is_llm_links_prompt(prompt):
+            calls.append(prompt)
+            return "[]"
+        return _fake_answer(prompt)
+
+    _stub_agent_cli(monkeypatch, answer=_answer)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli", "--no-llm-links"])
+
+    assert res.exit_code == 0, res.output
+    assert calls == []
+
+
+def test_agent_cli_reports_short_intents_without_stopping(monkeypatch, cli_repo, agent_allowed):
+    def _short_intents(prompt):
+        if not _is_enrichment_prompt(prompt):
+            return json.dumps(VALID_LAYER_SET)
+        start = prompt.index("Nodes (")
+        nodes = json.loads(prompt[prompt.index("[", start):])
+        return json.dumps([{"id": node["id"], "intent": "Only one sentence."} for node in nodes])
+
+    _stub_agent_cli(monkeypatch, answer=_short_intents)
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+
+    assert res.exit_code == 0, res.output
+    assert "outside the recommended 2-3 sentences" in res.output
+    snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
+    assert any(n.get("intent") == "Only one sentence." for n in snapshot["nodes"])
+
+
+def test_generated_enrichment_prompts_require_two_to_three_sentences(cli_repo):
+    from tldrgraph.cli_agent_loop import build_agent_enrichment_prompt
+    from tldrgraph.cli_enrichment import enrichment_instructions
+    from tldrgraph.llm_enricher import build_system_prompt
+
+    prompt = build_agent_enrichment_prompt(str(cli_repo), [{"id": "node"}])
+    assert "2-3 complete sentences" in prompt
+    assert any("2-3 complete sentences" in line for line in enrichment_instructions())
+    assert "2-3 sentence" in build_system_prompt()
 
 
 def test_agent_cli_failure_does_not_lose_the_graph(monkeypatch, cli_repo, agent_allowed):

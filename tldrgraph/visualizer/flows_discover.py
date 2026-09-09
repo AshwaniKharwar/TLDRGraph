@@ -18,13 +18,18 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
+from ..flow_traversal import BRIDGE_RELATIONS
+
 MAX_STEPS = 7
-MIN_STEPS = 3
+MIN_STEPS = 2
+ROUTE_LINK_RELATIONS = ("llm_http_route_link", "http_route_link", "calls_endpoint")
 
 # Files where a request, a command or a page starts. Ordered by how strongly
 # each one signals an entry point.
 ENTRY_PATTERNS: Tuple[Tuple[str, str, int], ...] = (
-    (r"(^|/)(app|pages)/.*/(route|page)\.(t|j)sx?$", "Web request", 6),
+    # ``app/page.tsx`` is the App Router's home page; the optional directory
+    # segment also covers route groups, dynamic segments, and nested pages.
+    (r"(^|/)(app|pages)(?:/.+)?/(route|page)\.(t|j)sx?$", "Web request", 6),
     (r"\.controller\.(t|j)s$", "API request", 6),
     (r"(^|/)(routes?|controllers?|handlers?|endpoints?)/", "API request", 5),
     (r"(^|/)(cli|cmd|commands?)/", "Command line", 5),
@@ -49,6 +54,49 @@ SKIP_DIRS = ("tests/", "test/", "spec/", "__tests__/", "benchmarks/", "node_modu
 def _is_candidate_file(file_path: str) -> bool:
     path = (file_path or "").replace("\\", "/").lower()
     return bool(path) and not any(part in path for part in SKIP_DIRS)
+
+
+def _is_next_page_file(file_path: str) -> bool:
+    """Whether a file is a Next.js App Router page, including ``app/page``."""
+    path = (file_path or "").replace("\\", "/")
+    return bool(re.search(r"(^|/)app(?:/.+)?/page\.(t|j)sx?$", path, re.IGNORECASE))
+
+
+def _is_frontend_file(file_path: str) -> bool:
+    path = (file_path or "").replace("\\", "/").lower()
+    return any(part in path for part in ("frontend/", "/app/", "/pages/", "/components/"))
+
+
+def _has_route_link(graph: nx.DiGraph, node_id: str) -> bool:
+    return any(
+        data.get("relation") in ROUTE_LINK_RELATIONS
+        for _, _, data in graph.out_edges(node_id, data=True)
+    )
+
+
+def _reaches_route_link(
+    graph: nx.DiGraph,
+    root: str,
+    max_depth: int = 2,
+) -> bool:
+    """Whether a frontend entry reaches an API boundary through UI/API helpers."""
+    queue: List[Tuple[str, int]] = [(root, 0)]
+    visited = {root}
+
+    while queue:
+        current, depth = queue.pop(0)
+        if depth > 0 and _has_route_link(graph, current):
+            return True
+        if depth >= max_depth:
+            continue
+        for _, target, data in graph.out_edges(current, data=True):
+            if target in visited:
+                continue
+            if data.get("relation") in ("contains", "rationale_for", "imports", "imports_from"):
+                continue
+            visited.add(target)
+            queue.append((target, depth + 1))
+    return False
 
 
 def _entry_score(node: Dict[str, Any]) -> Tuple[int, str]:
@@ -85,7 +133,7 @@ def _module_of(file_path: str) -> str:
 def rank_entry_points(
     graph: nx.DiGraph,
     nodes_by_id: Dict[str, Dict[str, Any]],
-    limit: int,
+    limit: Optional[int] = None,
 ) -> List[Tuple[str, str]]:
     """The most promising starting points, best first, as (node_id, category)."""
     scored: List[Tuple[float, str, str]] = []
@@ -97,11 +145,21 @@ def rank_entry_points(
             continue
 
         signal, category = _entry_score(node)
+        file_path = node.get("file") or ""
+        if _is_frontend_file(file_path):
+            if _has_route_link(graph, node_id):
+                signal, category = max(signal, 7), "Feature flow"
+            elif not _is_next_page_file(file_path) and _reaches_route_link(graph, node_id):
+                signal, category = max(signal, 8), "Feature flow"
         out_degree = graph.out_degree(node_id)
         in_degree = graph.in_degree(node_id)
         if signal == 0 and in_degree > 0:
             continue                       # something calls it, so it is not a start
-        if out_degree < 2:
+        # A page can legitimately be a thin route wrapper that renders one
+        # feature component.  Requiring two edges hides the home page and many
+        # small App Router pages before their component's own flow is explored.
+        minimum_edges = 1 if signal >= 7 or _is_next_page_file(node.get("file") or "") else 2
+        if out_degree < minimum_edges:
             continue                       # nothing downstream to show
 
         # Prefer a strong entry signal, then reach, then being called by nothing.
@@ -109,7 +167,8 @@ def rank_entry_points(
         scored.append((weight, node_id, category or "Process"))
 
     scored.sort(key=lambda item: (-item[0], item[1]))
-    return [(node_id, category) for _, node_id, category in scored[:limit]]
+    ranked = [(node_id, category) for _, node_id, category in scored]
+    return ranked if limit is None else ranked[:limit]
 
 
 def _next_step(
@@ -121,6 +180,7 @@ def _next_step(
     """The most meaningful next call: a layer change beats staying put."""
     here = nodes_by_id.get(current) or {}
     best: Optional[Tuple[float, str]] = None
+    route_priority = {"llm_http_route_link": 1000, "http_route_link": 900, "calls_endpoint": 800}
 
     for _, target, data in graph.out_edges(current, data=True):
         if target in visited or target not in nodes_by_id:
@@ -133,11 +193,12 @@ def _next_step(
             continue
 
         score = float(graph.out_degree(target))
+        score += route_priority.get(relation, 0)
         if node.get("layer_id") and node.get("layer_id") != here.get("layer_id"):
             score += 12                    # crossing a layer is the interesting move
         if node.get("file") != here.get("file"):
             score += 4
-        if relation == "cross_layer_link":
+        if relation in BRIDGE_RELATIONS:
             score += 3
         if best is None or score > best[0]:
             best = (score, target)
@@ -171,20 +232,28 @@ def discover_workflows(
     nodes_by_id: Dict[str, Dict[str, Any]],
     format_step: Callable[..., Dict[str, Any]],
     collect_support: Callable[..., List[Dict[str, Any]]],
-    limit: int = 12,
+    limit: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Finds the journeys in a repository nobody has described by hand."""
+    """Finds every distinct journey in a repository nobody has described by hand.
+
+    ``limit`` remains available for callers that explicitly want a smaller
+    result, but visualizer generation deliberately leaves it unset.
+    """
     workflows: List[Dict[str, Any]] = []
     claimed: Set[str] = set()
 
-    for root, category in rank_entry_points(graph, nodes_by_id, limit * 3):
-        if len(workflows) >= limit:
+    candidate_limit = limit * 3 if limit is not None else None
+    for root, category in rank_entry_points(graph, nodes_by_id, candidate_limit):
+        if limit is not None and len(workflows) >= limit:
             break
         if root in claimed:
             continue
 
         chain = _walk_steps(graph, root, nodes_by_id)
-        if len(chain) < MIN_STEPS:
+        # A thin App Router page and its feature component is still a useful
+        # visible journey, even when static analysis cannot reach deeper.
+        minimum_steps = 2 if _is_next_page_file(nodes_by_id[root].get("file") or "") else MIN_STEPS
+        if len(chain) < minimum_steps:
             continue
         # Two journeys that mostly retrace each other are one journey.
         if len(set(chain) & claimed) > len(chain) // 2:

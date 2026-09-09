@@ -140,7 +140,7 @@ Equivalent JSON format (also accepted from `.tldrgraph/enrichment_response.json`
 [
   {
     "id": "backend_src_applications_applications_controller_applicationscontroller",
-    "intent": "### Pension Application Lifecycle Gateway\nREST gateway for the pension application lifecycle.",
+    "intent": "### Pension Application Lifecycle Gateway\nREST gateway for the pension application lifecycle. It authorizes roles and dispatches source-backed status transitions.",
     "input_fields": ["caseId", "transitionPayload", "remarks", "sanctionOrderNo"],
     "output_fields": ["applicationStatus", "disposition"],
     "calls": ["ApplicationsService", "JwtAuthGuard", "RolesGuard", "pension_cases"]
@@ -151,7 +151,7 @@ Equivalent JSON format (also accepted from `.tldrgraph/enrichment_response.json`
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `id` | string, **required** | The node id, copied **verbatim** from the request. An id that is not in the graph is skipped silently. |
-| `intent` | string (Markdown) | Markdown formatted explanation: what this symbol does, its role, and why it exists. AI decides how much depth is needed. This is the text semantic search matches against. |
+| `intent` | string (Markdown) | Markdown formatted 2-3 sentence explanation: what this symbol does, why it exists, and its source-backed behavior. Headings and list markers do not count as sentences. This is the text semantic search matches against. |
 | `input_fields` | array of strings | Input parameters, arguments, request body payload attributes, query filters. |
 | `output_fields` | array of strings | Return types, response models, emitted event names, or mutated state attributes. |
 | `fields` | array of strings (legacy) | Supported for backwards compatibility (maps to input fields). |
@@ -171,13 +171,17 @@ valid and useful.
    describe what it really does. An intent paraphrased from the label is worse than no
    intent, because it poisons search with confident-sounding noise.
 
-2. **Do not invent fields or calls. Omit what you cannot verify in the code.** If you
+2. **Write every intent in 2-3 complete sentences.** Cover what the symbol does, why it
+   exists, and its source-backed behavior. Markdown headings and list markers do not count
+   as sentences.
+
+3. **Do not invent fields or calls. Omit what you cannot verify in the code.** If you
    read the file and it handles three params, list three. Do not pad the list with what a
    symbol of that name "usually" has. `"fields": []` is a correct, honest answer.
    A wrong `calls` entry creates a real, wrong edge in the graph that later queries will
    follow.
 
-3. **`calls` entries are resolved with 2-tier high precision.**
+4. **`calls` entries are resolved with 2-tier high precision.**
    - **Tier 1 (Exact Match, 100% confidence):** Exact symbol names (`ApplicationsService`),
      function names, node IDs, file paths (`calc.ts`), or database table names (`pension_cases`).
    - **Tier 2 (Vector Fallback):** Semantic search with a calibrated 0.35 score floor.
@@ -191,12 +195,12 @@ valid and useful.
 
    Prefer the exact symbol name, file name, or table/model name as it appears in the source.
 
-4. **Copy `id` verbatim.** Do not normalize, shorten or re-case it.
+5. **Copy `id` verbatim.** Do not normalize, shorten or re-case it.
 
-5. **Answer only the nodes in the request.** Extra ids are ignored; missing ids just come
+6. **Answer only the nodes in the request.** Extra ids are ignored; missing ids just come
    back in a later batch.
 
-6. **After full approval, never ask again for the same campaign.** Continue processing
+7. **After full approval, never ask again for the same campaign.** Continue processing
    `needs_enrichment` batches until `status: done`. Do not silently add `--limit` or
    `--embeddings off`.
 
