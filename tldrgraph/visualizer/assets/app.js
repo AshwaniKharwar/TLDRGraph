@@ -3123,7 +3123,10 @@ function buildWorkflowLayout(w) {
 
   const groups = groupByStep(visible, flows);
   const spineIds = [];
-  const stepEntry = [];
+  // The spine card is the step's entry activity. Keep this mapping so flows
+  // that originally start at that activity can enter its internal detail
+  // directly, rather than rendering the same activity a second time below it.
+  const spineForHead = new Map();
 
   // How much room each step needs: its widest level of branch shapes.
   const slotWidth = groups.map(group => {
@@ -3197,9 +3200,6 @@ function buildWorkflowLayout(w) {
     // step never stretches the whole diagram sideways.
     const rows = [];
     const levelKeys = Array.from(group.levels.keys()).sort((a, b) => a - b);
-    if (!bare) {
-      rows.push([head]);                       // the head is now a branch shape
-    }
     levelKeys.forEach(level => {
       const list = group.levels.get(level);
       for (let i = 0; i < list.length; i += BRANCH_PER_LEVEL) {
@@ -3225,9 +3225,7 @@ function buildWorkflowLayout(w) {
       });
     });
 
-    if (!bare) {
-      stepEntry.push({ spine: lineNode.id, head: head.id });
-    }
+    if (!bare) spineForHead.set(head.id, lineNode.id);
 
     cursorX += slot + NODE_GAP;
   });
@@ -3243,16 +3241,14 @@ function buildWorkflowLayout(w) {
   for (let i = 0; i < spineIds.length - 1; i++) {
     rebuilt.push({ source: spineIds[i], target: spineIds[i + 1], label: '', kind: 'sequence' });
   }
-  stepEntry.forEach(pair => {
-    rebuilt.push({ source: pair.spine, target: pair.head, label: '', kind: 'enter' });
-  });
   flows.forEach(f => {
-    const a = placedById.get(f.source);
+    const source = spineForHead.get(f.source) || f.source;
+    const a = placedById.get(source);
     const b = placedById.get(f.target);
     if (!a || !b) return;
-    if (f.kind === 'loop_back') { rebuilt.push(f); return; }
+    if (f.kind === 'loop_back') { rebuilt.push({ ...f, source: source }); return; }
     if (stepOf.get(f.source) !== stepOf.get(f.target)) return;   // the line covers this
-    rebuilt.push(f);
+    rebuilt.push({ ...f, source: source });
   });
 
   flowEdges = rebuilt.map(f => {
