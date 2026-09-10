@@ -1630,9 +1630,12 @@ function paintSymbolCard(c, n, opts) {
   c.font = 'bold 12px -apple-system, sans-serif';
   c.fillText(truncateText(n.display_label || n.label, w - titleRight, c), left + 34, top + 18);
 
-  c.fillStyle = '#94a3b8';
-  c.font = '10px monospace';
-  c.fillText(truncateText(baseName(n.file), w - 74, c), left + 9, top + 38);
+  const metaText = o.metaText === undefined ? baseName(n.file) : o.metaText;
+  if (metaText) {
+    c.fillStyle = '#94a3b8';
+    c.font = '10px monospace';
+    c.fillText(truncateText(metaText, w - 74, c), left + 9, top + 38);
+  }
 
   c.textAlign = 'right';
   c.font = '9px monospace';
@@ -2740,7 +2743,6 @@ function renderWorkflowsList() {
         </div>
         <div class="flow-card-meta">
           <span class="flow-layer-badge" style="background: ${lColor};">${escapeHtml(w.layer || 'Layer')}</span>
-          <span class="flow-card-file">${escapeHtml(w.file)}</span>
         </div>
         <div class="flow-card-summary">${escapeHtml(w.summary || '')}</div>
         <div class="flow-card-layers">${layerBadges}</div>
@@ -3174,6 +3176,7 @@ function buildWorkflowLayout(w) {
     // happened to start with - a diamond on the line reads as a decision, and
     // the decisions belong underneath.
     const head = group.head;
+    const stepMeta = (w.steps || [])[group.step - 1] || {};
     const bare = head.kind === 'start' || (head.kind === 'end' && group.members.length === 1);
     const lineNode = bare ? head : {
       ...head,
@@ -3181,6 +3184,9 @@ function buildWorkflowLayout(w) {
       kind: 'step',
       label: head.step_title || head.label,
       detail: head.step_title ? head.label : head.detail,
+      node_id: stepMeta.node_id || head.node_id,
+      file: stepMeta.file || head.file,
+      line: stepMeta.code_start || head.line,
       isStepCard: true,
     };
     const lineSize = shapeSize(lineNode);
@@ -3374,6 +3380,7 @@ function drawRoundedTask(c, n, active, hovered) {
     hovered: hovered,
     emphasis: n.kind === 'step',
     dead: false,
+    metaText: '',
     badge: n.kind === 'step' && n.step ? ('#' + n.step)
       : (n.kind === 'loop' ? '\u21bb' : (n.external ? n.external : null)),
   });
@@ -3678,7 +3685,7 @@ function selectWorkflow(flowId) {
   }
   if (summaryEl) summaryEl.textContent = w.summary;
   if (stepsMetaEl) stepsMetaEl.textContent = `${w.step_count} Logical Steps`;
-  if (entryMetaEl) entryMetaEl.textContent = `Entry: ${w.root_node} (${w.file})`;
+  if (entryMetaEl) entryMetaEl.textContent = `Starts with: ${w.root_node || w.title}`;
 
   if (layersMetaEl) {
     layersMetaEl.innerHTML = (w.layers_involved || []).map(lname => {

@@ -149,16 +149,16 @@ One command handles layer design, extraction, enrichment, LLM route links, and e
 tldrgraph init
 ```
 
-By default TLDRGraph detects `claude`, `cursor-agent`, or `gemini`, asks once
-before enrichment token spend, processes 200-node batches, and builds embeddings.
-Use `--yes` for approval, `--batch N` for batch size, `--embeddings off|auto|on`,
-`--no-llm-links` to skip LLM frontend/backend route inference, or `--no-agent-cli`
-for manual file handoff.
+By default TLDRGraph detects `claude`, `cursor-agent`, or `gemini`, processes
+200-node batches, and builds embeddings. In a detected coding-agent session,
+plain `tldrgraph init` auto-approves the full enrichment campaign; normal
+terminal users and non-agent automation still get the confirmation gate.
 
-After approval, use exactly `tldrgraph init --yes`; later continuation runs must
-continue without asking the user again. `--batch 200` means all nodes in chunks;
-`--limit 200` means stop after only 200 nodes. Never add `--limit` or
-`--embeddings off` unless the user explicitly requests it.
+Use exactly `tldrgraph init` for this workflow. Add `--yes` only if a non-agent
+`needs_confirmation` response explicitly asks for approval. `--batch 200` means
+all nodes in chunks; `--limit 200` means stop after only 200 nodes.
+Never add `--limit`, `--no-llm-links`, or `--embeddings off` unless the user
+explicitly requests it.
 
 If no supported agent is available or dense embeddings cannot be built, `init`
 preserves the graph and prints a resumable status. It never guesses source intent,
@@ -201,9 +201,9 @@ TLDRGraph ships **no layer templates** and will not invent an architecture.
 
 ## `status: needs_confirmation`
 
-The output shows how many nodes need enrichment and how many agent round-trips
-that implies. **Ask the user whether to proceed, and show them that estimate.**
-Do not decide for them.
+Detected coding-agent sessions should not reach this state for a full run. If a
+non-agent run does, the output shows how many nodes need enrichment and how many
+agent round-trips that implies; ask the user whether to proceed.
 
 - They agree: `tldrgraph init --yes` saves approval for the full campaign
 - Smaller first pass: `tldrgraph init --yes --limit 100`
@@ -232,7 +232,7 @@ why it exists, and its source-backed behavior. Markdown headings and list marker
 count as sentences.
 
 4. Run `tldrgraph init` again. Approval is saved; process any next
-   `needs_enrichment` batch immediately until `status: done` or `needs_llm_links`.
+   `needs_enrichment` batch immediately without asking the user again.
 
 Inside an existing Codex/Claude/Cursor session, nested-agent protection may stop
 the CLI from launching a second agent. In that case **you are the enrichment
@@ -251,7 +251,8 @@ Read `.tldrgraph/llm_links_request.yaml`, open the referenced frontend/backend
 files, then write `.tldrgraph/llm_links_response.yaml` as a YAML list of
 `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
 Only include source-backed links with file and line evidence. Run `tldrgraph init`
-again, or use `--no-llm-links` to skip this optional stage.
+again. This is a required continuation state for a complete init run unless the
+user explicitly requested `--no-llm-links`.
 
 ## Once it says DONE
 

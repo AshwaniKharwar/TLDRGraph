@@ -371,6 +371,30 @@ def test_init_asks_before_spending_tokens_and_shows_the_estimate(cli_repo):
     assert "tldrgraph init --yes" in res.output
 
 
+def test_coding_agent_init_auto_approves_full_campaign(monkeypatch, cli_repo):
+    _answer_layers(cli_repo)
+    monkeypatch.setenv("AI_AGENT", "1")
+
+    res = CliRunner().invoke(cli, ["init", str(cli_repo)])
+
+    assert res.exit_code == 0, res.output
+    assert "Detected coding-agent session ($AI_AGENT)" in res.output
+    assert "status: needs_confirmation" not in res.output
+    assert "status: needs_enrichment" in res.output
+    assert (cli_repo / ".tldrgraph" / APPROVAL_FILENAME).is_file()
+
+
+def test_coding_agent_init_with_limit_is_not_full_auto_approval(monkeypatch, cli_repo):
+    _answer_layers(cli_repo)
+    monkeypatch.setenv("AI_AGENT", "1")
+
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--limit", "1"])
+
+    assert res.exit_code == 0, res.output
+    assert "status: needs_confirmation" in res.output
+    assert not (cli_repo / ".tldrgraph" / APPROVAL_FILENAME).exists()
+
+
 def test_the_estimate_is_machine_readable(cli_repo):
     _answer_layers(cli_repo)
     res = CliRunner().invoke(cli, ["init", str(cli_repo), "--json"])
@@ -619,6 +643,38 @@ def test_agent_cli_infers_llm_route_links_during_init(monkeypatch, cli_repo, age
     assert edges
     assert edges[0]["confidence"] == 0.84
     assert edges[0]["frontend_file"].endswith("page.tsx")
+
+
+def test_llm_route_failure_requires_manual_handoff(monkeypatch, cli_repo, agent_allowed):
+    (cli_repo / "frontend/src/orders").mkdir(parents=True)
+    (cli_repo / "backend/src").mkdir(parents=True)
+    (cli_repo / "frontend/src/orders/page.tsx").write_text(
+        "export function OrdersPage() { return getOrders() }\n", encoding="utf-8"
+    )
+    (cli_repo / "backend/src/orders.controller.ts").write_text(
+        "@Controller('orders')\nexport class OrdersController {\n"
+        "  @Get()\n  findAll() { return [] }\n}\n",
+        encoding="utf-8",
+    )
+
+    def _answer(agent, prompt, cwd, timeout=None, model=None):
+        if _is_llm_links_prompt(prompt):
+            raise agent_runner.AgentError("route agent unavailable")
+        return _fake_answer(prompt)
+
+    monkeypatch.setattr(agent_runner, "run_agent", _answer)
+    monkeypatch.setattr(agent_runner, "find_agent_cli", lambda **kw: fake_agent())
+    monkeypatch.setattr(
+        agent_runner, "agent_status",
+        lambda: {"agent": fake_agent(), "reason": "ready", "detail": "Fake fake"},
+    )
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+
+    assert res.exit_code == 0, res.output
+    assert "status: needs_llm_links" in res.output
+    assert "Required LLM frontend-backend link inference" in res.output
+    assert "optional" not in res.output.lower()
+    assert (cli_repo / ".tldrgraph" / "llm_links_request.yaml").is_file()
 
 
 def test_no_llm_links_flag_skips_route_inference(monkeypatch, cli_repo, agent_allowed):

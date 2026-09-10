@@ -35,15 +35,16 @@ def generate_layers_prose(registry: Optional[LayerRegistry] = None) -> str:
 _LOOP = """One command does everything -- layers, extraction, enrichment, LLM route links, and embeddings:
 
 ```bash
-tldrgraph init          # interactive: asks once before enrichment token spend
-tldrgraph init --yes    # approve every current candidate until the campaign is done
+tldrgraph init          # agents auto-approve full runs; terminals may ask once
+tldrgraph init --yes    # non-agent explicit approval when confirmation asks for it
 ```
 
 `init` automatically detects a supported agent CLI, uses 200-node enrichment batches,
 infers evidence-backed frontend/backend route links, and downloads/builds dense embeddings.
 It never guesses: when no agent is usable it prints a manual layer, enrichment, or route-link handoff.
 
-Full approval is persisted across continuation runs. In a nested coding-agent session,
+Full approval is persisted across continuation runs. In a coding-agent session,
+plain `tldrgraph init` approves the full campaign and nested-agent protection means
 the host agent must read, answer, and apply every 200-node batch without asking again.
 `--batch 200` means all nodes in chunks; `--limit 200` means only 200 total. Never add
 `--limit`, `--no-llm-links`, or `--embeddings off` unless the user explicitly requests it.
@@ -73,6 +74,8 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
 - **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
   open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
   with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
+  This is required for a complete init run unless the user explicitly requested
+  `--no-llm-links`.
 - **Continue after approval until `status: done`.** A `needs_enrichment` batch is work to
   process, not a reason to ask again. Do not add `--limit`, `--no-llm-links`, or `--embeddings off`."""
 

@@ -12,13 +12,13 @@ phrasing layer and the renderer treat both alike.
 
 from __future__ import annotations
 
-import os
 import re
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
 
 from ..flow_traversal import BRIDGE_RELATIONS
+from .action_labels import action_label
 
 MAX_STEPS = 7
 MIN_STEPS = 2
@@ -113,21 +113,6 @@ def _entry_score(node: Dict[str, Any]) -> Tuple[int, str]:
         if re.match(pattern, bare, re.IGNORECASE) and score > best:
             best, reason = score, category
     return best, reason
-
-
-def _humanize(text: str) -> str:
-    cleaned = re.sub(r"\(.*?\)", "", str(text or "")).strip().split(".")[-1].lstrip("_")
-    cleaned = re.sub(r"(?<!^)(?=[A-Z])", " ", cleaned).replace("_", " ")
-    words = [w for w in cleaned.split() if w]
-    if not words:
-        return "Run the process"
-    words[0] = words[0][:1].upper() + words[0][1:]
-    return " ".join(words)
-
-
-def _module_of(file_path: str) -> str:
-    base = os.path.basename(file_path or "")
-    return os.path.splitext(base)[0] or "app"
 
 
 def rank_entry_points(
@@ -277,22 +262,21 @@ def discover_workflows(
 
         support = collect_support(steps)
         root_node = nodes_by_id[root]
-        title = _humanize(root_node.get("label") or root)
-        module = _module_of(root_node.get("file"))
+        title = action_label(root_node, root)
 
         workflows.append({
             "id": "flow_found_" + re.sub(r"[^a-z0-9_]", "_", root.lower())[:60],
-            "title": f"{title} ({module})",
+            "title": title,
             "category": category,
-            "root_node": root_node.get("label") or root,
+            "root_node": title,
+            "root_symbol": root_node.get("label") or root,
             "root_id": root,
             "file": root_node.get("file") or "",
             "layer_id": root_node.get("layer_id") or "utility",
             "layer": root_node.get("layer") or "",
             "summary": (
-                f"{category} beginning at {root_node.get('label') or root} in "
-                f"{root_node.get('file') or 'this repository'}, followed through "
-                f"{len(steps)} steps across {len(layers_involved)} layer(s)."
+                f"{category} for {title.lower()}, followed through "
+                f"{len(steps)} actions across {len(layers_involved)} layer(s)."
             ),
             "step_count": len(steps),
             "layers_involved": layers_involved,

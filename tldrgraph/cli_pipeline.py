@@ -151,7 +151,8 @@ def _run_agent_cli_enrichment(
     status = STATUS_NEEDS_ENRICHMENT if rem else (
         STATUS_NEEDS_EMBEDDINGS if embedding_error else STATUS_DONE
     )
-    retry = ["Run `tldrgraph init --yes` to continue."] if rem or embedding_error else []
+    resume = "tldrgraph init" if progress.get("approval_persisted") else "tldrgraph init --yes"
+    retry = [f"Run `{resume}` to continue."] if rem or embedding_error else []
     emit_status(status, "embeddings" if embedding_error else "enrichment", [
         f"Enriched {totals['applied']} node(s) in {totals['batches']} batch(es); {totals['bridges']} bridge edge(s).",
         f"⚠️  {totals['intent_length_violations']} intent(s) were outside the recommended 2-3 sentences." if totals["intent_length_violations"] else "All applied intents met the recommended 2-3 sentence length.",
@@ -196,7 +197,7 @@ def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, exclud
     if embedding_error:
         lines.extend([
             f"Dense embeddings could not be completed: {embedding_error}",
-            "Run `tldrgraph init --yes` again after fixing model access.",
+            "Run `tldrgraph init` again after fixing model access.",
         ])
     else:
         lines.extend([
@@ -254,12 +255,16 @@ def _handle_enrichment_step(
         "approval_persisted": enrichment_approval_is_active(path, candidates),
     }
 
-    authorized = assume_yes or enrichment_approval_is_active(path, candidates)
+    agent_marker = agent_runner.nesting_marker()
+    auto_agent_approved = bool(agent_marker) and not max_nodes
+    authorized = assume_yes or enrichment_approval_is_active(path, candidates) or auto_agent_approved
     if not authorized:
         conf_status = _check_confirmation(candidates, total, enriched, excluded, rounds, batch_size, progress, as_json)
         if conf_status:
             return conf_status
         authorized = True
+    elif auto_agent_approved and not assume_yes and not as_json:
+        click.echo(f"🤖 Detected coding-agent session (${agent_marker}); proceeding with full enrichment.")
 
     if authorized and not max_nodes:
         remember_full_enrichment_approval(path, candidates)

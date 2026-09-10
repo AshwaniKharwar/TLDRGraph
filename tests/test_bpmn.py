@@ -9,7 +9,9 @@ from tldrgraph.bpmn_extract import extract_process
 from tldrgraph.visualizer.bpmn_data import (
     LANE_EXTERNAL,
     LANE_SYSTEM,
+    _build_label_index,
     _question_from,
+    _resolve_call,
     build_workflow_process,
 )
 from tldrgraph.visualizer.bpmn_phrasing import ELEMENT_PHRASES, phrase_for_element
@@ -85,6 +87,22 @@ def test_external_work_is_not_confused_with_a_dictionary_lookup(tmp_path):
     process = extract_process(str(tmp_path), "m.py", "run", "p")
     externals = {e["external"] for e in process["elements"] if e["external"]}
     assert externals == {"File system"}
+
+
+def test_browser_fetch_does_not_resolve_to_unrelated_project_method():
+    nodes_by_id = {
+        "exchange": {"label": "exchangeImpersonationCode()", "file": "frontend/src/services/auth.ts"},
+        "github_fetch": {"label": ".fetch()", "file": "backend/src/services/githubSync.ts"},
+    }
+
+    resolved = _resolve_call(
+        ["fetch"],
+        "frontend/src/services/auth.ts",
+        nodes_by_id,
+        _build_label_index(nodes_by_id),
+    )
+
+    assert resolved is None
 
 
 def _workflow(tmp_path):
@@ -283,6 +301,93 @@ def test_tests_and_vendored_code_are_never_offered_as_a_journey():
             graph.add_edge(node_id, f"{node_id}_child{i}", relation="calls")
 
     assert rank_entry_points(graph, nodes_by_id, 10) == []
+
+
+def test_workflow_process_prefers_intent_action_over_code_label(tmp_path):
+    graph = nx.DiGraph()
+    nodes_by_id = {
+        "endpoint": {
+            "label": "POST /containers/create",
+            "file": "backend/src/routes/containers.ts",
+            "layer_id": "api",
+            "layer": "API",
+            "intent": "Create a project container for the user. It validates the request and returns the new container.",
+        },
+        "schema": {
+            "label": "Project",
+            "file": "schema.prisma",
+            "layer_id": "data",
+            "layer": "Data",
+            "intent": "Store the project record in the database. It keeps the workspace metadata available for later steps.",
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes_by_id.items())
+
+    workflow = {
+        "id": "flow_project_prompt",
+        "steps": [
+            {"node_id": "endpoint", "symbol": "POST /containers/create", "file": "missing.ts", "code_start": 1,
+             "intent": nodes_by_id["endpoint"]["intent"]},
+            {"node_id": "schema", "symbol": "Project", "file": "schema.prisma", "code_start": 1,
+             "intent": nodes_by_id["schema"]["intent"]},
+        ],
+    }
+
+    process = build_workflow_process(str(tmp_path), workflow, graph, nodes_by_id)
+    labels = [e["label"] for e in process["elements"] if e.get("node_id")]
+    titles = [e["step_title"] for e in process["elements"] if e.get("node_id")]
+
+    assert labels == [
+        "Create a project container for the user",
+        "Store the project record in the database",
+    ]
+    assert titles == labels
+    assert "POST /containers/create" not in labels
+    assert "Project" not in labels
+
+
+def test_workflow_process_rejects_generic_symbol_intents(tmp_path):
+    graph = nx.DiGraph()
+    nodes_by_id = {
+        "endpoint": {
+            "label": "POST /containers/create",
+            "file": "backend/src/routes/containers.ts",
+            "layer_id": "api",
+            "layer": "API",
+            "intent": (
+                "The symbol POST /containers/create is defined in backend/src/routes/"
+                "containers.ts as an HTTP-facing backend module."
+            ),
+        },
+        "handler": {
+            "label": "POST /containers/create handler",
+            "file": "backend/src/routes/containers.ts",
+            "layer_id": "api",
+            "layer": "API",
+            "intent": "The symbol POST /containers/create handler is defined in backend/src/routes/containers.ts.",
+        },
+        "schema": {
+            "label": "Project",
+            "file": "schema.prisma",
+            "layer_id": "persistence",
+            "layer": "Persistence & Domain Data",
+            "intent": "The symbol Project is defined in schema.prisma as a data model.",
+        },
+    }
+    graph.add_nodes_from((node_id, data) for node_id, data in nodes_by_id.items())
+    workflow = {
+        "id": "flow_project_prompt",
+        "steps": [
+            {"node_id": node_id, "symbol": node["label"], "file": node["file"], "intent": node["intent"]}
+            for node_id, node in nodes_by_id.items()
+        ],
+    }
+
+    process = build_workflow_process(str(tmp_path), workflow, graph, nodes_by_id)
+    labels = [e["label"] for e in process["elements"] if e.get("node_id")]
+
+    assert labels == ["Create container", "Handle create container request", "Store project data"]
+    assert all(not label.startswith("The symbol") for label in labels)
 
 
 def test_enrichment_round_trip_stores_phrases_against_their_code(tmp_path):

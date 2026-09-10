@@ -81,10 +81,11 @@ repository, runs `init`, and handles every required follow-up. In Claude Code or
 Cursor, run `/tldrgraph-init`. In Codex, open `/skills` and select
 `tldrgraph-init`, or invoke `$tldrgraph-init`.
 
-The agent designs the repository-specific layers, extracts the graph, asks once
-before enrichment token spend, enriches every eligible node in 200-node batches,
-and downloads/builds local dense embeddings. That approval is remembered for the
-current candidate set until enrichment is complete.
+The agent designs the repository-specific layers, extracts the graph, enriches
+every eligible node in 200-node batches, and downloads/builds local dense
+embeddings. In a detected coding-agent session, plain `tldrgraph init`
+auto-approves the full enrichment campaign; normal terminal users and non-agent
+automation still get the confirmation gate.
 
 `--batch 200` controls chunk size while still processing everything. `--limit
 200` intentionally stops after 200 total nodes. Embeddings remain enabled unless
@@ -99,7 +100,7 @@ It can report four resumable states:
 | status | what it needs |
 | --- | --- |
 | `needs_layers` | Read the code and design the architecture. No template will be applied for you. |
-| `needs_confirmation` | Shows how many nodes need enrichment and how many agent rounds that is. **Your agent asks you before spending tokens.** |
+| `needs_confirmation` | Non-agent runs only: shows how many nodes need enrichment and how many agent rounds that is before approval. |
 | `needs_enrichment` | A batch of nodes to open, read, and describe. |
 | `needs_embeddings` | Enrichment is complete, but the required dense model/index could not be built. |
 
