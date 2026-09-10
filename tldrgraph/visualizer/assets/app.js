@@ -2928,7 +2928,11 @@ function initWorkflowCanvasEvents() {
   flowCanvas.addEventListener('dblclick', (ev) => {
     const pos = getMousePos(ev);
     const hit = flowHitTest(pos.x, pos.y);
-    if (hit && hit.file) openFileViewer(hit.file, hit.line || hit.code_start || 1);
+    if (hit && hit.file) {
+      const start = hit.line || hit.code_start || 1;
+      const end = hit.code_end && hit.code_end >= start ? hit.code_end : start;
+      openFileViewer(hit.file, { start: start, end: end });
+    }
   });
 }
 
