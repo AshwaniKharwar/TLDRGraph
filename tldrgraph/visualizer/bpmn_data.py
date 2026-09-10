@@ -1,13 +1,4 @@
-"""
-Builds the BPMN payload the Workflow Explorer renders.
-
-Takes the deterministic control flow from :mod:`tldrgraph.bpmn_extract`, chains
-one workflow's steps into a single process, resolves each activity to the graph
-node it calls, sorts every element into a swimlane, and layers the business
-phrasing over the top. The result is a diagram a non-engineer can read: named
-activities, explicit decisions, and a visible boundary between what the tool
-does by itself and what a person or an outside system does.
-"""
+"""Builds the plain-language BPMN payload the Workflow Explorer renders."""
 
 from __future__ import annotations
 
@@ -17,6 +8,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import networkx as nx
 
 from ..bpmn_extract import extract_process
+from .action_labels import action_label, humanize_symbol
 from .bpmn_phrasing import (
     branch_labels,
     load_project_phrases,
@@ -43,24 +35,13 @@ USER_FILES = ("tldrgraph/cli.py",)
 USER_CALLS = {"prompt", "confirm", "input", "echo", "secho"}
 
 
-def _humanize(text: str) -> str:
-    """Turns an identifier into a plain-language phrase as a last resort."""
-    cleaned = re.sub(r"\(.*?\)", "", str(text or "")).strip()
-    cleaned = cleaned.split(".")[-1].lstrip("_")
-    cleaned = re.sub(r"(?<!^)(?=[A-Z])", " ", cleaned).replace("_", " ")
-    words = [w for w in cleaned.split() if w]
-    if not words:
-        return "Do the work"
-    words[0] = words[0][:1].upper() + words[0][1:]
-    return " ".join(words)
-
-
 # Method names common to dictionaries, lists and strings. Matching these against
 # a project symbol of the same name mislabels an activity, so they never resolve.
 AMBIGUOUS_CALLS = {
     "get", "set", "add", "append", "extend", "items", "keys", "values", "update",
     "pop", "join", "split", "strip", "format", "sort", "sorted", "copy", "close",
     "read", "write", "next", "len", "str", "int", "float", "list", "dict", "print",
+    "fetch", "json",
 }
 
 
@@ -184,7 +165,7 @@ def build_workflow_process(
         starts = {e["id"] for e in process["elements"] if e["kind"] == "start"}
         entries = _entry_targets(process)
 
-        step_title = phrase_for_step(workflow["id"], index + 1, "title") or _humanize(step["symbol"])
+        step_title = phrase_for_step(workflow["id"], index + 1, "title") or action_label(step, step["symbol"])
         for raw in process["elements"]:
             if raw["id"] in starts:
                 continue
@@ -203,7 +184,7 @@ def build_workflow_process(
             if not phrased and node_id:
                 phrased = phrase_for_node(node_id)
             if not phrased and node_id in nodes_by_id:
-                phrased = _humanize(nodes_by_id[node_id].get("label") or "")
+                phrased = action_label(nodes_by_id[node_id])
             if not phrased:
                 phrased = _humanize_element(raw)
 
@@ -367,7 +348,7 @@ def _humanize_element(raw: Dict[str, Any]) -> str:
     if kind == "end":
         return "Finish and hand back the result"
     calls = raw.get("calls") or []
-    return _humanize(calls[0]) if calls else _humanize(detail)
+    return humanize_symbol(calls[0]) if calls else humanize_symbol(detail)
 
 
 def _dedupe_flows(flows: List[Dict[str, Any]], valid: Set[str]) -> List[Dict[str, Any]]:

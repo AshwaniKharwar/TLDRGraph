@@ -48,6 +48,8 @@ def test_generate_visualizer_html_file(mini_repo):
     assert "TLDRGraph" in content
     assert "findRouteRegistration" in content
     assert "route_path" in content
+    assert "normalizeFileHighlight" in content
+    assert "openFileViewer(hit.file, { start: start, end: end });" in content
 
 
 def test_payload_carries_source_pointers_not_source_text(mini_repo):

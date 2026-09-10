@@ -24,16 +24,16 @@ tldrgraph dead-code                            # review candidates, never a dele
 
 Those are read-only and never trigger enrichment.
 
-**To build or refresh the graph**, run `tldrgraph init`. It automatically handles
-layer design, extraction, source-aware enrichment in 200-node batches, LLM
-frontend/backend route-link inference, and dense embeddings when a supported
-agent CLI is available. If it prints a `NEXT ACTION` fallback, follow that
-handoff without guessing from symbol names.
+**To build or refresh the graph**, run `tldrgraph init`. In a detected coding-agent
+session, plain `tldrgraph init` auto-approves the full enrichment campaign; normal
+terminal users and non-agent automation still get confirmation. It handles layer
+design, extraction, source-aware enrichment in 200-node batches, LLM route links,
+and dense embeddings. If it prints a `NEXT ACTION` fallback, follow that handoff.
 
 ### ✅ TLDRGraph Init Completion Contract
-After the user approves a full TLDRGraph enrichment run, the agent MUST keep
-working until `tldrgraph init` reports `status: done` or a genuine blocking error
-requires user action.
+After a full TLDRGraph enrichment run is approved or auto-approved, the agent MUST
+keep working until `tldrgraph init` reports `status: done` or a genuine blocking
+error requires user action.
 
 - `needs_enrichment`, "nodes remaining", "batches remaining", and "NEXT ACTION"
   are continuation states, not completion states.

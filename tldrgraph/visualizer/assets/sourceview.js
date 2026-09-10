@@ -476,6 +476,21 @@ function refreshOpenViews() {
 let fileViewerPath = null;
 let fileViewerHighlight = null;
 
+function normalizeFileHighlight(highlight) {
+  if (!highlight) return null;
+  if (typeof highlight === 'number') {
+    return highlight > 0 ? { start: highlight, end: highlight } : null;
+  }
+  if (typeof highlight === 'string') {
+    const parsed = parseInt(highlight.replace(/^L/i, ''), 10);
+    return parsed > 0 ? { start: parsed, end: parsed } : null;
+  }
+  const start = parseInt(highlight.start || highlight.line || highlight.code_start, 10);
+  const end = parseInt(highlight.end || highlight.code_end || start, 10);
+  if (!start || start < 1) return null;
+  return { start: start, end: end && end >= start ? end : start };
+}
+
 function fileSymbols(path) {
   const mod = DATA.modules.find(m => m.path === path);
   if (!mod) return [];
@@ -486,8 +501,9 @@ function fileSymbols(path) {
 
 function openFileViewer(path, highlight) {
   if (!path) return;
+  const normalizedHighlight = normalizeFileHighlight(highlight);
   fileViewerPath = path;
-  fileViewerHighlight = highlight || null;
+  fileViewerHighlight = normalizedHighlight;
 
   const overlay = document.getElementById('file-viewer');
   const body = document.getElementById('file-viewer-body');
@@ -501,7 +517,7 @@ function openFileViewer(path, highlight) {
 
   const openLink = document.getElementById('file-viewer-open');
   openLink.href = 'vscode://file' + (DATA.root || '').replace(/\/$/, '') + '/' + path +
-                  ':' + ((highlight && highlight.start) || 1);
+                  ':' + ((normalizedHighlight && normalizedHighlight.start) || 1);
 
   if (accessMode === 'none') {
     body.innerHTML = '<div class="viewer-placeholder">' +
@@ -523,8 +539,8 @@ function openFileViewer(path, highlight) {
 
     const language = (DATA.modules.find(m => m.path === path) || {}).language || 'plain';
     const highlighted = highlightCode(entry.lines.join('\n'), language);
-    const from = highlight ? highlight.start : 0;
-    const to = highlight ? highlight.end : -1;
+    const from = normalizedHighlight ? normalizedHighlight.start : 0;
+    const to = normalizedHighlight ? normalizedHighlight.end : -1;
 
     document.getElementById('file-viewer-meta').textContent =
       entry.lines.length + ' lines - ' + language;
@@ -542,7 +558,7 @@ function openFileViewer(path, highlight) {
       ? symbols.map(s => {
           const range = RANGE_CACHE.get(s.id);
           const line = (range && range.start) || s.code_start || 0;
-          const isActive = highlight && line === highlight.start;
+          const isActive = normalizedHighlight && line === normalizedHighlight.start;
           return '<div class="outline-item' + (isActive ? ' active' : '') + '" ' +
             'data-line="' + line + '" data-node="' + escapeHtml(s.id) + '">' +
             '<span class="outline-name">' + escapeHtml(s.display_label || s.label) + '</span>' +
@@ -551,7 +567,7 @@ function openFileViewer(path, highlight) {
         }).join('')
       : '<div class="viewer-placeholder small">No indexed symbols in this file.</div>';
 
-    if (highlight && highlight.start) scrollViewerToLine(highlight.start);
+    if (normalizedHighlight && normalizedHighlight.start) scrollViewerToLine(normalizedHighlight.start);
   });
 }
 

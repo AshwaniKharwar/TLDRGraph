@@ -1630,9 +1630,12 @@ function paintSymbolCard(c, n, opts) {
   c.font = 'bold 12px -apple-system, sans-serif';
   c.fillText(truncateText(n.display_label || n.label, w - titleRight, c), left + 34, top + 18);
 
-  c.fillStyle = '#94a3b8';
-  c.font = '10px monospace';
-  c.fillText(truncateText(baseName(n.file), w - 74, c), left + 9, top + 38);
+  const metaText = o.metaText === undefined ? baseName(n.file) : o.metaText;
+  if (metaText) {
+    c.fillStyle = '#94a3b8';
+    c.font = '10px monospace';
+    c.fillText(truncateText(metaText, w - 74, c), left + 9, top + 38);
+  }
 
   c.textAlign = 'right';
   c.font = '9px monospace';
@@ -2740,7 +2743,6 @@ function renderWorkflowsList() {
         </div>
         <div class="flow-card-meta">
           <span class="flow-layer-badge" style="background: ${lColor};">${escapeHtml(w.layer || 'Layer')}</span>
-          <span class="flow-card-file">${escapeHtml(w.file)}</span>
         </div>
         <div class="flow-card-summary">${escapeHtml(w.summary || '')}</div>
         <div class="flow-card-layers">${layerBadges}</div>
@@ -2926,7 +2928,11 @@ function initWorkflowCanvasEvents() {
   flowCanvas.addEventListener('dblclick', (ev) => {
     const pos = getMousePos(ev);
     const hit = flowHitTest(pos.x, pos.y);
-    if (hit && hit.file) openFileViewer(hit.file, hit.line || hit.code_start || 1);
+    if (hit && hit.file) {
+      const start = hit.line || hit.code_start || 1;
+      const end = hit.code_end && hit.code_end >= start ? hit.code_end : start;
+      openFileViewer(hit.file, { start: start, end: end });
+    }
   });
 }
 
@@ -3123,7 +3129,10 @@ function buildWorkflowLayout(w) {
 
   const groups = groupByStep(visible, flows);
   const spineIds = [];
-  const stepEntry = [];
+  // The spine card is the step's entry activity. Keep this mapping so flows
+  // that originally start at that activity can enter its internal detail
+  // directly, rather than rendering the same activity a second time below it.
+  const spineForHead = new Map();
 
   // How much room each step needs: its widest level of branch shapes.
   const slotWidth = groups.map(group => {
@@ -3171,6 +3180,7 @@ function buildWorkflowLayout(w) {
     // happened to start with - a diamond on the line reads as a decision, and
     // the decisions belong underneath.
     const head = group.head;
+    const stepMeta = (w.steps || [])[group.step - 1] || {};
     const bare = head.kind === 'start' || (head.kind === 'end' && group.members.length === 1);
     const lineNode = bare ? head : {
       ...head,
@@ -3178,6 +3188,9 @@ function buildWorkflowLayout(w) {
       kind: 'step',
       label: head.step_title || head.label,
       detail: head.step_title ? head.label : head.detail,
+      node_id: stepMeta.node_id || head.node_id,
+      file: stepMeta.file || head.file,
+      line: stepMeta.code_start || head.line,
       isStepCard: true,
     };
     const lineSize = shapeSize(lineNode);
@@ -3197,9 +3210,6 @@ function buildWorkflowLayout(w) {
     // step never stretches the whole diagram sideways.
     const rows = [];
     const levelKeys = Array.from(group.levels.keys()).sort((a, b) => a - b);
-    if (!bare) {
-      rows.push([head]);                       // the head is now a branch shape
-    }
     levelKeys.forEach(level => {
       const list = group.levels.get(level);
       for (let i = 0; i < list.length; i += BRANCH_PER_LEVEL) {
@@ -3225,9 +3235,7 @@ function buildWorkflowLayout(w) {
       });
     });
 
-    if (!bare) {
-      stepEntry.push({ spine: lineNode.id, head: head.id });
-    }
+    if (!bare) spineForHead.set(head.id, lineNode.id);
 
     cursorX += slot + NODE_GAP;
   });
@@ -3243,16 +3251,14 @@ function buildWorkflowLayout(w) {
   for (let i = 0; i < spineIds.length - 1; i++) {
     rebuilt.push({ source: spineIds[i], target: spineIds[i + 1], label: '', kind: 'sequence' });
   }
-  stepEntry.forEach(pair => {
-    rebuilt.push({ source: pair.spine, target: pair.head, label: '', kind: 'enter' });
-  });
   flows.forEach(f => {
-    const a = placedById.get(f.source);
+    const source = spineForHead.get(f.source) || f.source;
+    const a = placedById.get(source);
     const b = placedById.get(f.target);
     if (!a || !b) return;
-    if (f.kind === 'loop_back') { rebuilt.push(f); return; }
+    if (f.kind === 'loop_back') { rebuilt.push({ ...f, source: source }); return; }
     if (stepOf.get(f.source) !== stepOf.get(f.target)) return;   // the line covers this
-    rebuilt.push(f);
+    rebuilt.push({ ...f, source: source });
   });
 
   flowEdges = rebuilt.map(f => {
@@ -3378,6 +3384,7 @@ function drawRoundedTask(c, n, active, hovered) {
     hovered: hovered,
     emphasis: n.kind === 'step',
     dead: false,
+    metaText: '',
     badge: n.kind === 'step' && n.step ? ('#' + n.step)
       : (n.kind === 'loop' ? '\u21bb' : (n.external ? n.external : null)),
   });
@@ -3682,7 +3689,7 @@ function selectWorkflow(flowId) {
   }
   if (summaryEl) summaryEl.textContent = w.summary;
   if (stepsMetaEl) stepsMetaEl.textContent = `${w.step_count} Logical Steps`;
-  if (entryMetaEl) entryMetaEl.textContent = `Entry: ${w.root_node} (${w.file})`;
+  if (entryMetaEl) entryMetaEl.textContent = `Starts with: ${w.root_node || w.title}`;
 
   if (layersMetaEl) {
     layersMetaEl.innerHTML = (w.layers_involved || []).map(lname => {

@@ -100,7 +100,7 @@ def run_llm_link_step(
             except agent_runner.AgentError as err:
                 if not as_json:
                     click.echo(f"   ⚠️  LLM route link inference failed: {err}")
-                return None
+                    click.echo("   Falling back to the required file handoff.")
 
     req_path = write_payload(state_path(path, REQUEST_FILENAME), {
         "schema": "codechakra/llm-route-links-request@1",
@@ -114,13 +114,11 @@ def run_llm_link_step(
         "payload": payload,
     })
     emit_status(STATUS_NEEDS_LLM_LINKS, "llm_links", [
-        "The graph is built and enriched. LLM frontend-backend link inference needs the active agent:",
+        "The graph is built and enriched. Required LLM frontend-backend link inference needs the active agent:",
         "",
         f"  1. Read {os.path.relpath(req_path, root)}",
         "  2. Open the referenced frontend and backend source files.",
         f"  3. Write .tldrgraph/{RESPONSE_FILENAME} with strict evidence for every link.",
         "  4. Run: tldrgraph init",
-        "",
-        "Use --no-llm-links to skip this optional inference stage.",
     ], progress={"candidate_hash": candidate_hash}, as_json=as_json)
     return STATUS_NEEDS_LLM_LINKS

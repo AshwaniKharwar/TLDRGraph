@@ -24,14 +24,15 @@ One command handles layers, extraction, enrichment, and embeddings:
 tldrgraph init
 ```
 
-It asks once before enrichment token spend. Full approval is persisted for the current
-candidate set until enrichment finishes, so continuation runs must not ask again. By
-default it uses 200-node batches and builds dense embeddings.
+In a detected coding-agent session, plain `tldrgraph init` auto-approves the full
+enrichment campaign. Normal terminal users and non-agent automation still get the
+confirmation gate. Full approval is persisted for the current candidate set until
+enrichment finishes, so continuation runs must not ask again.
 
 | status | what it wants |
 | --- | --- |
 | `needs_layers` | Read the code and design this repository's architecture. **TLDRGraph ships no layer templates**; nothing will be applied for you. The request carries sketches of how other kinds of codebase divide — for shape only, never to copy. |
-| `needs_confirmation` | Show the estimate and ask once. Approval via `tldrgraph init --yes` persists until the current campaign is done. |
+| `needs_confirmation` | Non-agent runs only: show the estimate and ask once. Approval via `tldrgraph init --yes` persists until the current campaign is done. |
 | `needs_enrichment` | Open, read, and describe this batch, then continue immediately without asking again. |
 | `needs_embeddings` | Enrichment finished but the required dense model/index could not be built. Fix model access and rerun init. |
 | `done` | Nothing left. Use `query` / `trace` / `layers`. |
@@ -48,7 +49,7 @@ dropped, and will be reported back to you — but the work is wasted.
 ## The loop
 
 ```bash
-tldrgraph init --yes  # 1. approve every current candidate; writes a 200-node request
+tldrgraph init        # 1. approve the full campaign in agent sessions
 #                       2. read every requested source and write enrichment_response.yaml
 tldrgraph init        # 3. applies it and emits the next batch; approval is remembered
 #                       4. repeat steps 2-3 without asking until status: done
