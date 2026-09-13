@@ -2,38 +2,31 @@
 
 **Audience: the coding agent with this repository open** (Codex, Claude Code, Cursor, Antigravity).
 
-TLDRGraph builds an architectural graph from the graphify AST export. The layer set
-itself is designed by you, reading this repository. TLDRGraph ships no layer templates.
-Structure *within* a layer, and the high-volume deterministic seams between layers, are
-extracted automatically. What cannot be extracted automatically is:
-
-- indirect dispatch, queue / event hops, dynamically-built routes;
-- the natural-language **intent** that makes semantic search work at all.
-
-That is your job. You are not a fallback for a hosted model — you are the primary
-enrichment path, because **you can open the files**. The API path only ever sees a label
-and a path (`snippet` is never populated), so it guesses. You do not have to guess.
+TLDRGraph builds an architectural graph from the graphify AST export. By default,
+`tldrgraph init` does not ask AI to design architecture layers, enrich every
+symbol, infer route links, or generate BPMN workflows. The only default AI-shaped
+artifact is the saved Feature Workflow Explorer YAML, and it must stay backed by
+real source evidence.
 
 ---
 
 ## Start here: `tldrgraph init`
 
-One command handles layers, extraction, enrichment, and embeddings:
+One command handles extraction, saved feature workflows, and embeddings:
 
 ```bash
 tldrgraph init
 ```
 
-In a detected coding-agent session, plain `tldrgraph init` auto-approves the full
-enrichment campaign. Normal terminal users and non-agent automation still get the
-confirmation gate. Full approval is persisted for the current candidate set until
-enrichment finishes, so continuation runs must not ask again.
+Use `--agent-cli` only when the user explicitly asks for AI-assisted architecture
+layer design and all-symbol enrichment. Saved feature workflow generation is
+independent and does not require `--agent-cli`.
 
 | status | what it wants |
 | --- | --- |
-| `needs_layers` | Read the code and design this repository's architecture. **TLDRGraph ships no layer templates**; nothing will be applied for you. The request carries sketches of how other kinds of codebase divide — for shape only, never to copy. |
-| `needs_confirmation` | Non-agent runs only: show the estimate and ask once. Approval via `tldrgraph init --yes` persists until the current campaign is done. |
-| `needs_enrichment` | Open, read, and describe this batch, then continue immediately without asking again. |
+| `needs_layers` | Only process if the user explicitly opted into architecture AI with `--agent-cli`. |
+| `needs_confirmation` | Only belongs to explicit `--agent-cli` enrichment. Ask before continuing. |
+| `needs_enrichment` | Only process if the user explicitly asked for full graph enrichment. |
 | `needs_embeddings` | Enrichment finished but the required dense model/index could not be built. Fix model access and rerun init. |
 | `done` | Nothing left. Use `query` / `trace` / `layers`. |
 
@@ -46,22 +39,13 @@ dropped, and will be reported back to you — but the work is wasted.
 
 ---
 
-## The loop
+## Explicit Enrichment Loop
 
-```bash
-tldrgraph init        # 1. approve the full campaign in agent sessions
-#                       2. read every requested source and write enrichment_response.yaml
-tldrgraph init        # 3. applies it and emits the next batch; approval is remembered
-#                       4. repeat steps 2-3 without asking until status: done
-```
-
-Inside an existing coding-agent session, nested-agent protection can prevent the CLI
-from launching another agent. In that case **you are the enrichment agent** and must
-process every batch yourself. Do not stop at `needs_enrichment`.
-
-`--batch 200` means process all candidates in chunks of 200. `--limit 200` means stop
-after only 200 candidates and is only for an explicitly requested partial run. Never add
-`--limit` or `--embeddings off` unless the user explicitly requests that behavior.
+The legacy enrichment files below are for explicit `--agent-cli`,
+`queue-enrichment`, or `apply-enrichment` work. Do not process them as part of
+default Feature Workflow Explorer generation. Never add `--limit`,
+`--agent-cli`, `--llm-links`, or `--embeddings off` unless the user explicitly
+requests that behavior.
 
 Request and response are **separate files**. Never write your answer back into
 `enrichment_request.yaml`; it is regenerated on every run and your work would be lost.
@@ -73,6 +57,42 @@ Request and response are **separate files**. Never write your answer back into
 | `.tldrgraph/enrichment_cursor.json` | both commands | both commands |
 | `.tldrgraph/enrichment_approval.json` | `init --yes` | later `init` runs |
 | `.tldrgraph/pending_enrichment.json` | *(legacy)* | `apply-enrichment`, only if no response file exists |
+
+---
+
+## Feature Workflow Explorer artifacts
+
+`tldrgraph init` also creates the saved workflow artifacts used by the visualizer:
+
+| File | Written by | Read by |
+| --- | --- | --- |
+| `.tldrgraph/features.yaml` | `tldrgraph init` | Workflow Explorer |
+| `.tldrgraph/workflows/<feature_id>.yaml` | `tldrgraph init` | Workflow Explorer |
+
+The Workflow Explorer tab is intentionally file-driven. It must read only
+`.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`; if those
+files are missing, invalid, incomplete, or a feature has no generated workflow
+yet, show an explicit empty or pending state.
+
+Do **not** reintroduce Workflow Explorer fallback discovery through
+`discover_workflows()`, curated workflow blueprints, route-link workflow
+discovery, `llm_http_route_link`, `http_route_link`, `calls_endpoint`, or
+BPMN-derived workflow generation. Graph views elsewhere may still show route
+links or BPMN data, but saved feature workflows must remain independent.
+
+Every saved workflow step must be simple enough for non-technical users and vibe
+coders, and each step must carry source evidence: `node_id`, symbol, file, and
+line/range. If the evidence is absent, mark the workflow pending instead of
+guessing.
+
+A saved feature workflow should describe the complete flow when evidence exists:
+the exact user button/menu/form action, event handler, validation, client
+request code, request payload construction, API route/controller,
+middleware/auth, service or use-case logic, persistence/database, background
+job, external system, response payload creation, client response parsing, state
+update, navigation/toast/rendered result, and visible success or error handling.
+Do not stop at only the frontend or only the backend when the source proves the
+handoff, and do not collapse multiple proven source hops into one vague step.
 
 ---
 

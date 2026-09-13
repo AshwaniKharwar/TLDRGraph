@@ -5,121 +5,71 @@ description: Build or continue this repository's TLDRGraph architecture graph (l
 
 # TLDRGraph: build this repository's architecture graph
 
-In Claude Code or Cursor, invoke `/tldrgraph-init`. In Codex CLI, type `/skills`
-and select `tldrgraph-init`, or mention `$tldrgraph-init` directly.
+In Claude Code or Cursor, invoke `/tldrgraph-init`; in Codex CLI, select
+`tldrgraph-init` from `/skills` or mention `$tldrgraph-init`.
 
-One command handles layer design, extraction, enrichment, and embeddings:
+One command handles extraction, feature-file scaffolding, and embeddings:
 
 ```bash
 tldrgraph init
 ```
 
-By default TLDRGraph detects `claude`, `cursor-agent`, or `gemini`, asks once before enrichment token spend, processes every
-eligible node in batches of 200, and downloads/builds the local embedding model.
-Use `--yes` for non-interactive approval, `--batch N` to override the batch size,
-`--embeddings off|auto|on` to override embeddings, or `--no-agent-cli` for the
-manual file handoff.
+By default TLDRGraph does not ask another AI process to design architecture
+layers, enrich every symbol, infer route links, or generate BPMN workflows. It
+writes `.tldrgraph/features.yaml` and one `.tldrgraph/workflows/<feature_id>.yaml`
+file per feature. The coding agent that ran `tldrgraph init` owns completing any
+pending workflow files from source evidence.
 
-After the user approves the full run, use exactly `tldrgraph init --yes`. The
-approval is saved for the current candidate set, so later `tldrgraph init` calls
-must continue without asking again. `--batch 200` means all nodes in 200-node
-batches; `--limit 200` means stop after only 200 nodes. Never add `--limit` or
-`--embeddings off` unless the user explicitly requests a partial or no-embedding run.
+Use exactly `tldrgraph init` for this workflow. Add `--yes` only if a non-agent
+`needs_confirmation` response explicitly asks for approval. `--batch 200` means
+all nodes in chunks; `--limit 200` means stop after only 200 nodes.
+Never add `--limit`, `--agent-cli`, `--llm-links`, or `--embeddings off` unless the user
+explicitly requests it.
 
-If no supported agent is available or dense embeddings cannot be built, `init`
-preserves the graph and prints a resumable status. It never guesses source intent
-or architectural layers.
+## Feature Workflow Explorer artifacts
+
+Every init run writes `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`.
+Workflow Explorer reads only those files; missing or invalid workflows show pending states.
+Do not restore discovery through `discover_workflows()`, curated blueprints, route-link workflow discovery, route-link relations, or BPMN generation.
+Each plain-language step needs source evidence. Start at the button/menu/form action and continue through client request, backend work, response payload, client handling, and final UI update when proven.
+When `init` reports pending feature workflows:
+
+1. Open `.tldrgraph/features.yaml`.
+2. Open every pending `.tldrgraph/workflows/<feature_id>.yaml`.
+3. Open the source files referenced in `evidence_nodes`; do not guess.
+4. Replace `steps: []` with source-backed steps and set `status: generated`.
+5. Run `tldrgraph init` again.
 
 ## `status: needs_layers`
 
-TLDRGraph ships **no layer templates** and will not invent an architecture.
-Design one from this repository.
-
-1. Read `.tldrgraph/propose_layers_request.json`. It carries the symbols and
-   files extraction already found -- a starting point, not a substitute for
-   opening the code.
-2. **Open real source files**: entry points first, then a representative file
-   from each cluster in the evidence. Work out what this codebase actually does
-   and where responsibility changes hands.
-3. Write `.tldrgraph/propose_layers_response.json`:
-
-```json
-{
-  "utility_id": "<id of your catch-all layer>",
-  "layers": [
-    {
-      "id": "short_machine_id",
-      "name": "Layer 1: Human Friendly Name",
-      "order": 1,
-      "description": "One sentence on what lives here",
-      "rules": [
-        {"file_contains": ["substring"], "exclude_file": ["optional"]},
-        {"label_contains": ["SymbolNamePart"]}
-      ]
-    }
-  ]
-}
-```
-
-4. Run `tldrgraph init` again; it continues with enrichment and embeddings.
-
-### Rules that hold for any answer
-
-- 3 to 6 layers, plus exactly one catch-all whose `id` equals `utility_id` and
-  whose `rules` are `[]`.
-- Unique `id` and `name` per layer; sequential integer `order` from 1.
-- Rule keys: `file_contains`, `exclude_file`, `path_regex`, `label_contains`,
-  `exclude_label`, `label_ends_with`, `type_in`, `id_prefix`. Values are lists of
-  strings. Rules are evaluated in `order` and the first match wins.
-- Derive rules from paths and symbol names you actually saw. A rule matching
-  nothing is worse than no rule; a rule matching everything collapses the map.
+This should only appear when the user explicitly opted into architecture AI with
+`--agent-cli` or an older TLDRGraph build is running. Do not complete this
+handoff unless the user asked for architecture layer design.
 
 ## `status: needs_confirmation`
 
-The output shows how many nodes need enrichment and how many agent round-trips
-that implies. **Ask the user whether to proceed, and show them that estimate.**
-Do not decide for them.
-
-- They agree: `tldrgraph init --yes` saves approval for the full campaign
-- Smaller first pass: `tldrgraph init --yes --limit 100`
-- They decline: stop. The graph is already built and queryable.
+This belongs to explicit `--agent-cli` enrichment. Ask before continuing.
 
 ## `status: needs_enrichment`
 
-1. Read `.tldrgraph/enrichment_request.yaml`.
-2. **Open the source file of every node in it.** This is the entire point: an
-   intent paraphrased from a symbol name poisons semantic search with
-   confident-sounding noise.
-3. Write `.tldrgraph/enrichment_response.yaml` -- a *different* file from the
-   request, which is regenerated on every run:
-
-```yaml
-- id: "<node id copied verbatim from the request>"
-  intent: |
-    What this symbol does, why it exists, and its execution logic.
-  input_fields: [caseId, remarks]
-  output_fields: [status, disposition]
-  calls: [ApplicationsService, pension_cases]
-```
-
-Every `intent` must contain **2-3 complete sentences** covering what the symbol does,
-why it exists, and its source-backed behavior. Markdown headings and list markers do not
-count as sentences.
-
-4. Run `tldrgraph init` again. Approval is already saved. If another
-   `needs_enrichment` batch appears, process it immediately and repeat this loop
-   without asking the user again. Continue until `status: done`.
-
-Inside an existing Codex/Claude/Cursor session, nested-agent protection may stop
-the CLI from launching a second agent. In that case **you are the enrichment
-agent**: process every 200-node batch yourself. A `needs_enrichment` status is a
-continuation instruction, not a reason to stop or request confirmation.
+This should only appear when the user explicitly opted into architecture
+enrichment with `--agent-cli` or an older TLDRGraph build is running. Do not
+process enrichment batches unless the user asked for full graph enrichment.
 
 **Copy every `id` verbatim.** A constructed id matches nothing, is dropped, and
 gets reported back to you -- but the work is wasted.
 
 **Never invent `fields` or `calls`.** Omit what you cannot verify in the code: an
 empty list is a correct answer, a wrong `calls` entry becomes a real wrong edge.
+
+## `status: needs_llm_links`
+
+Read `.tldrgraph/llm_links_request.yaml`, open the referenced frontend/backend
+files, then write `.tldrgraph/llm_links_response.yaml` as a YAML list of
+`{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
+Only include source-backed links with file and line evidence. Run `tldrgraph init`
+again. This continuation state only appears when the user explicitly opted into
+route-link inference with `--llm-links`.
 
 ## Once it says DONE
 

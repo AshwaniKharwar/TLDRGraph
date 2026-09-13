@@ -23,34 +23,18 @@ tldrgraph dead-code                            # review candidates, never a dele
 2. Use `view_file` on the target file path returned by TLDRGraph to inspect the code.
 
 Those are read-only and never trigger enrichment.
+**To build or refresh the graph**, run `tldrgraph init`. It handles layer setup,
+extraction, embeddings, and writes the file-backed Feature Workflow Explorer
+artifacts: `.tldrgraph/features.yaml` plus `.tldrgraph/workflows/<feature_id>.yaml`.
 
-**To build or refresh the graph**, run `tldrgraph init`. In a detected coding-agent
-session, plain `tldrgraph init` auto-approves the full enrichment campaign; normal
-terminal users and non-agent automation still get confirmation. It handles layer
-design, extraction, source-aware enrichment in 200-node batches, LLM route links,
-and dense embeddings. If it prints a `NEXT ACTION` fallback, follow that handoff.
-
-### ✅ TLDRGraph Init Completion Contract
-After a full TLDRGraph enrichment run is approved or auto-approved, the agent MUST
-keep working until `tldrgraph init` reports `status: done` or a genuine blocking
-error requires user action.
-
-- `needs_enrichment`, "nodes remaining", "batches remaining", and "NEXT ACTION"
-  are continuation states, not completion states.
-- Do not end with a progress-only summary such as "I enriched 400 nodes and
-  1,438 remain" unless a blocking error prevents continuation.
-- After each enrichment response is written, immediately run `tldrgraph init`
-  again and repeat the loop.
-- If `status: needs_llm_links` appears, read `.tldrgraph/llm_links_request.yaml`,
-  open the referenced frontend/backend source files, and write
-  `.tldrgraph/llm_links_response.yaml` with evidence-backed
-  `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`
-  entries before running `tldrgraph init` again.
-- If nested-agent protection prevents launching another CLI agent, the current
-  agent is responsible for processing the batch manually.
-- Final responses may summarize progress only after `status: done`, embeddings
-  are completed or explicitly unavailable, or the exact blocker is reported.
-
+Feature workflows are owned by the agent running `tldrgraph init`. If a workflow
+file is pending, open `.tldrgraph/features.yaml`, then complete each pending
+`.tldrgraph/workflows/<feature_id>.yaml` from its evidence. Workflow Explorer
+reads only saved YAML, never curated blueprints, route-link workflow discovery,
+BPMN-derived generation, `discover_workflows()`, `llm_http_route_link`,
+`http_route_link`, or `calls_endpoint`. When writing feature workflows, start at
+the user's button/menu/form action and continue through client request, backend
+work, response payload, client handling, and final UI update. Do not skip proven steps.
 Full workflow: `.claude/commands/tldrgraph-init.md` (identical copies live in every
 other agent directory). Schema: `.tldrgraph/AGENT_CONTRACT.md`.
 

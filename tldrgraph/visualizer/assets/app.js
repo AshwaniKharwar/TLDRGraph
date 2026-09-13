@@ -2649,10 +2649,11 @@ function getLayerColor(layerId) {
 function initWorkflowsExplorer() {
   const workflows = DATA.workflows || [];
   const badgeEl = document.getElementById('flows-badge-count');
-  if (badgeEl) badgeEl.textContent = workflows.length;
+  const readyCount = workflows.filter(w => (w.status || 'generated') === 'generated').length;
+  if (badgeEl) badgeEl.textContent = readyCount;
 
   const countEl = document.getElementById('flows-list-count');
-  if (countEl) countEl.textContent = `Workflows (${workflows.length})`;
+  if (countEl) countEl.textContent = `Workflows (${readyCount}/${workflows.length})`;
 
   // Setup search input
   const searchInput = document.getElementById('flows-search-input');
@@ -2707,6 +2708,7 @@ function renderWorkflowsList() {
   const listEl = document.getElementById('flows-list');
   if (!listEl) return;
 
+  const allWorkflows = DATA.workflows || [];
   const workflows = (DATA.workflows || []).filter(w => {
     if (!flowSearchQuery) return true;
     const matchTitle = (w.title || '').toLowerCase().includes(flowSearchQuery);
@@ -2721,10 +2723,19 @@ function renderWorkflowsList() {
   });
 
   const countEl = document.getElementById('flows-list-count');
-  if (countEl) countEl.textContent = `Workflows (${workflows.length})`;
+  const readyCount = workflows.filter(w => (w.status || 'generated') === 'generated').length;
+  if (countEl) countEl.textContent = `Workflows (${readyCount}/${workflows.length})`;
 
   if (workflows.length === 0) {
-    listEl.innerHTML = `<div style="padding: 16px; text-align: center; font-size: 12px; color: var(--text-dim);">No matching workflows found.</div>`;
+    const state = (DATA.workflow_state || {}).state || 'missing_features';
+    const messages = {
+      missing_features: 'No feature manifest found. Run tldrgraph init to create .tldrgraph/features.yaml.',
+      invalid_features: '.tldrgraph/features.yaml is invalid. Run tldrgraph init to refresh it.',
+      empty_features: 'No features were saved for this project yet.',
+      ready: allWorkflows.length ? 'No matching saved workflows found.' : 'No saved feature workflows found.',
+    };
+    listEl.innerHTML = `<div style="padding: 16px; text-align: center; font-size: 12px; color: var(--text-dim);">${escapeHtml(messages[state] || messages.ready)}</div>`;
+    selectWorkflow(null);
     return;
   }
 
@@ -2739,13 +2750,13 @@ function renderWorkflowsList() {
       <div class="flow-card ${isActive ? 'active' : ''}" data-flow-id="${w.id}">
         <div class="flow-card-top">
           <span class="flow-card-title">${escapeHtml(w.title)}</span>
-          <span class="flow-card-steps-count">${w.step_count} steps</span>
+          <span class="flow-card-steps-count">${(w.status || 'generated') === 'generated' ? `${w.step_count} steps` : 'pending'}</span>
         </div>
         <div class="flow-card-meta">
-          <span class="flow-layer-badge" style="background: ${lColor};">${escapeHtml(w.layer || 'Layer')}</span>
+          <span class="flow-layer-badge" style="background: ${lColor};">${escapeHtml(w.category || w.layer || 'Feature')}</span>
         </div>
         <div class="flow-card-summary">${escapeHtml(w.summary || '')}</div>
-        <div class="flow-card-layers">${layerBadges}</div>
+        <div class="flow-card-layers">${(w.status || 'generated') === 'generated' ? layerBadges : `<span class="flow-layer-badge" style="background: rgba(251,191,36,0.18); color:#fde68a;">${escapeHtml(w.pending_reason || 'Workflow file pending')}</span>`}</div>
       </div>
     `;
   }).join('');
@@ -3668,6 +3679,9 @@ function selectWorkflow(flowId) {
   if (!w) {
     if (emptyState) emptyState.style.display = 'flex';
     if (headerCard) headerCard.style.display = 'none';
+    flowNodes = [];
+    flowEdges = [];
+    requestFlowFrame();
     return;
   }
 
@@ -3688,8 +3702,12 @@ function selectWorkflow(flowId) {
     badgeEl.style.background = getLayerColor(w.layer_id);
   }
   if (summaryEl) summaryEl.textContent = w.summary;
-  if (stepsMetaEl) stepsMetaEl.textContent = `${w.step_count} Logical Steps`;
-  if (entryMetaEl) entryMetaEl.textContent = `Starts with: ${w.root_node || w.title}`;
+  if (stepsMetaEl) stepsMetaEl.textContent = (w.status || 'generated') === 'generated'
+    ? `${w.step_count} Saved Steps`
+    : 'Workflow Pending';
+  if (entryMetaEl) entryMetaEl.textContent = (w.status || 'generated') === 'generated'
+    ? `Starts with: ${w.root_node || w.title}`
+    : (w.pending_reason || 'The workflow file has not been generated yet.');
 
   if (layersMetaEl) {
     layersMetaEl.innerHTML = (w.layers_involved || []).map(lname => {

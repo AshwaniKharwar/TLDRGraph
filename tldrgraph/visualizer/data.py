@@ -18,11 +18,10 @@ from typing import Any, Dict, List, Set, Tuple
 
 import networkx as nx
 
+from ..feature_workflow_loader import load_saved_feature_workflows
 from ..hierarchy import is_test_node
 from ..layer_config import load_layer_config
 from ..layers import get_registry
-from .flows_data import extract_visualizer_workflows
-from .bpmn_data import attach_bpmn_processes
 from .palette import FALLBACK_COLOR, palette_at
 from .source import SourceIndex, language_for, symbol_name
 
@@ -372,9 +371,8 @@ def prepare_visualizer_data(root_dir: str) -> Dict[str, Any]:
     child_edges, module_edges = _build_edges(raw_edges, nodes_by_id, modules_by_id)
     modules = _serialize_modules(modules_by_id)
 
-    graph = _build_nx_graph(raw_nodes, raw_edges)
-    workflows = extract_visualizer_workflows(graph, nodes_by_id, sources)
-    attach_bpmn_processes(root_dir, workflows, graph, nodes_by_id)
+    workflow_payload = load_saved_feature_workflows(root_dir)
+    workflows = workflow_payload["workflows"]
 
     active_layer_ids = {m["layer_id"] for m in modules}
     layers = sorted((l for l in layer_map.values() if l["id"] in active_layer_ids), key=lambda x: x["order"])
@@ -385,6 +383,7 @@ def prepare_visualizer_data(root_dir: str) -> Dict[str, Any]:
         "modules": modules,
         "nodes": list(nodes_by_id.values()),
         "workflows": workflows,
+        "workflow_state": {k: v for k, v in workflow_payload.items() if k != "workflows"},
         "module_edges": module_edges,
         "child_edges": child_edges,
         "stats": {

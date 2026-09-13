@@ -31,7 +31,7 @@ from .layer_evidence import (
     extracted_symbol_evidence,
     sample_repo_files,
 )
-from .layers import LayerRegistry, get_registry
+from .layers import LayerRegistry, bootstrap_registry, get_registry
 
 REQUEST_FILENAME = "propose_layers_request.json"
 RESPONSE_FILENAME = "propose_layers_response.json"
@@ -300,4 +300,6 @@ def auto_configure_layers(
             out_path = save_layer_config(root, registry)
             return registry, out_path, "llm_synthesis"
 
-    return None, None, NEEDS_LAYERS
+    registry = bootstrap_registry()
+    out_path = save_layer_config(root, registry)
+    return registry, out_path, "bootstrap"

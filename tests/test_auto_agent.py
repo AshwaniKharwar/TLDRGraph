@@ -54,6 +54,23 @@ def fake_agent(name: str = "fake") -> agent_runner.AgentCLI:
     )
 
 
+def complete_pending_workflows(root: Path) -> None:
+    manifest = yaml.safe_load((root / ".tldrgraph" / "features.yaml").read_text(encoding="utf-8"))
+    for feature in manifest.get("features", []):
+        path = root / feature["workflow_path"]
+        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+        evidence_nodes = workflow.get("evidence_nodes") or []
+        evidence = (evidence_nodes[0] if evidence_nodes else {}).get("evidence") or (feature.get("evidence") or [{}])[0]
+        workflow["status"] = "generated"
+        workflow["steps"] = [{
+            "number": 1,
+            "title": f"Run {feature['title']}",
+            "text": "The current agent completed this workflow from source evidence.",
+            "evidence": [evidence],
+        }]
+        path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+
+
 @pytest.fixture
 def agent_allowed(monkeypatch):
     """
@@ -243,14 +260,14 @@ def test_auto_configure_prefers_the_agent_over_the_archetype(monkeypatch, cli_re
     assert reg.ids() == ("entry", "core", "shared")
 
 
-def test_no_agent_means_no_layers_and_no_config_file(cli_repo):
-    """The archetype fallback is gone: nothing writes layers it did not derive."""
+def test_no_agent_uses_bootstrap_layers(cli_repo):
+    """Without architecture AI, init uses the honest single-bucket layer set."""
     reg, cfg_path, source = auto_configure_layers(
         str(cli_repo), enricher=None, use_llm=False, use_agent=False
     )
-    assert source == NEEDS_LAYERS
-    assert reg is None and cfg_path is None
-    assert not (cli_repo / ".tldrgraph" / "layers.config.yaml").exists()
+    assert source == "bootstrap"
+    assert reg is not None and reg.ids() == ("utility",)
+    assert cfg_path and (cli_repo / ".tldrgraph" / "layers.config.yaml").exists()
 
 
 def test_an_agent_authored_config_is_never_silently_replaced(monkeypatch, cli_repo):
@@ -324,13 +341,12 @@ def _stub_agent_cli(monkeypatch, answer=_fake_answer):
     )
 
 
-def test_init_stops_and_asks_for_layers_first(cli_repo):
-    """Phase 1: no architecture, no template, so it must stop and ask."""
+def test_init_does_not_ask_ai_for_layers_by_default(cli_repo):
     res = CliRunner().invoke(cli, ["init", str(cli_repo)])
     assert res.exit_code == 0, res.output
-    assert "status: needs_layers" in res.output
-    assert "propose_layers_request.json" in res.output
-    assert not (cli_repo / ".tldrgraph" / "layers.config.yaml").exists()
+    assert "status: needs_layers" not in res.output
+    assert not (cli_repo / ".tldrgraph" / "propose_layers_request.json").exists()
+    assert (cli_repo / ".tldrgraph" / "layers.config.yaml").exists()
 
 
 def test_init_extracts_before_asking_so_the_evidence_has_real_symbols(cli_repo):
@@ -339,7 +355,10 @@ def test_init_extracts_before_asking_so_the_evidence_has_real_symbols(cli_repo):
     listing -- two repos with identical file trees can do entirely different
     things, and the agent is being asked to name what this one does.
     """
+    from tldrgraph.propose_layers import generate_propose_request
+
     CliRunner().invoke(cli, ["init", str(cli_repo)])
+    generate_propose_request(str(cli_repo))
     payload = json.loads(
         (cli_repo / ".tldrgraph" / "propose_layers_request.json").read_text(encoding="utf-8")
     )
@@ -353,7 +372,7 @@ def test_init_resumes_after_the_agent_answers_the_layers(cli_repo):
     CliRunner().invoke(cli, ["init", str(cli_repo)])
     _answer_layers(cli_repo)
 
-    res = CliRunner().invoke(cli, ["init", str(cli_repo)])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli"])
     assert res.exit_code == 0, res.output
     assert "status: needs_layers" not in res.output
     assert (cli_repo / ".tldrgraph" / "layers.config.yaml").is_file()
@@ -363,7 +382,7 @@ def test_init_resumes_after_the_agent_answers_the_layers(cli_repo):
 def test_init_asks_before_spending_tokens_and_shows_the_estimate(cli_repo):
     """Phase 3 gate: the user is told the size of the job before it starts."""
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo)])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli"])
 
     assert res.exit_code == 0, res.output
     assert "status: needs_confirmation" in res.output
@@ -371,24 +390,24 @@ def test_init_asks_before_spending_tokens_and_shows_the_estimate(cli_repo):
     assert "tldrgraph init --yes" in res.output
 
 
-def test_coding_agent_init_auto_approves_full_campaign(monkeypatch, cli_repo):
+def test_coding_agent_init_does_not_auto_approve_enrichment_by_default(monkeypatch, cli_repo):
     _answer_layers(cli_repo)
     monkeypatch.setenv("AI_AGENT", "1")
 
     res = CliRunner().invoke(cli, ["init", str(cli_repo)])
 
     assert res.exit_code == 0, res.output
-    assert "Detected coding-agent session ($AI_AGENT)" in res.output
+    assert "Detected coding-agent session ($AI_AGENT)" not in res.output
     assert "status: needs_confirmation" not in res.output
-    assert "status: needs_enrichment" in res.output
-    assert (cli_repo / ".tldrgraph" / APPROVAL_FILENAME).is_file()
+    assert "status: needs_enrichment" not in res.output
+    assert not (cli_repo / ".tldrgraph" / APPROVAL_FILENAME).exists()
 
 
 def test_coding_agent_init_with_limit_is_not_full_auto_approval(monkeypatch, cli_repo):
     _answer_layers(cli_repo)
     monkeypatch.setenv("AI_AGENT", "1")
 
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--limit", "1"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--limit", "1"])
 
     assert res.exit_code == 0, res.output
     assert "status: needs_confirmation" in res.output
@@ -397,7 +416,7 @@ def test_coding_agent_init_with_limit_is_not_full_auto_approval(monkeypatch, cli
 
 def test_the_estimate_is_machine_readable(cli_repo):
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--json"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--json"])
     assert res.exit_code == 0, res.output
 
     payload = json.loads(res.output)
@@ -410,7 +429,7 @@ def test_the_estimate_is_machine_readable(cli_repo):
 
 def test_yes_hands_out_an_enrichment_batch(cli_repo):
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
 
     assert res.exit_code == 0, res.output
     assert "status: needs_enrichment" in res.output
@@ -423,7 +442,7 @@ def test_init_applies_the_agents_enrichment_and_reaches_done(cli_repo):
     """The full loop, played out the way an agent would: init, answer, init."""
     _answer_layers(cli_repo)
     runner = CliRunner()
-    runner.invoke(cli, ["init", str(cli_repo), "--yes"])
+    runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
 
     state = cli_repo / ".tldrgraph"
     for _ in range(20):
@@ -441,12 +460,12 @@ def test_init_applies_the_agents_enrichment_and_reaches_done(cli_repo):
             ]),
             encoding="utf-8",
         )
-        res = runner.invoke(cli, ["init", str(cli_repo)])
+        res = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli"])
         assert res.exit_code == 0, res.output
-        if "status: done" in res.output:
+        if "status: needs_feature_workflows" in res.output:
             break
     else:
-        raise AssertionError("init never reached status: done")
+        raise AssertionError("init never reached status: needs_feature_workflows")
 
     snapshot = json.loads((state / "graph.json").read_text(encoding="utf-8"))
     assert all(
@@ -456,11 +475,16 @@ def test_init_applies_the_agents_enrichment_and_reaches_done(cli_repo):
     )
     assert not (state / APPROVAL_FILENAME).exists()
 
+    complete_pending_workflows(cli_repo)
+    final = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli"])
+    assert final.exit_code == 0, final.output
+    assert "status: done" in final.output
+
 
 def test_full_approval_survives_manual_batches_without_reconfirmation(cli_repo):
     _answer_layers(cli_repo)
     runner = CliRunner()
-    first = runner.invoke(cli, ["init", str(cli_repo), "--yes", "--batch", "1"])
+    first = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes", "--batch", "1"])
     assert "status: needs_enrichment" in first.output
 
     state = cli_repo / ".tldrgraph"
@@ -470,16 +494,16 @@ def test_full_approval_survives_manual_batches_without_reconfirmation(cli_repo):
         encoding="utf-8",
     )
 
-    continued = runner.invoke(cli, ["init", str(cli_repo), "--batch", "1"])
+    continued = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--batch", "1"])
     assert continued.exit_code == 0, continued.output
     assert "status: needs_confirmation" not in continued.output
-    assert "status: needs_enrichment" in continued.output or "status: done" in continued.output
+    assert "status: needs_enrichment" in continued.output or "status: needs_feature_workflows" in continued.output
 
 
 def test_limited_approval_does_not_authorize_the_remaining_campaign(cli_repo):
     _answer_layers(cli_repo)
     runner = CliRunner()
-    first = runner.invoke(cli, ["init", str(cli_repo), "--yes", "--limit", "1"])
+    first = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes", "--limit", "1"])
     assert "status: needs_enrichment" in first.output
     assert not (cli_repo / ".tldrgraph" / APPROVAL_FILENAME).exists()
 
@@ -490,7 +514,7 @@ def test_limited_approval_does_not_authorize_the_remaining_campaign(cli_repo):
         yaml.dump([{"id": request["nodes"][0]["id"], "intent": "One approved node."}]),
         encoding="utf-8",
     )
-    resumed = runner.invoke(cli, ["init", str(cli_repo)])
+    resumed = runner.invoke(cli, ["init", str(cli_repo), "--agent-cli"])
     assert "status: needs_confirmation" in resumed.output
 
 
@@ -508,7 +532,7 @@ def test_an_applied_response_is_not_applied_twice(cli_repo):
     """
     _answer_layers(cli_repo)
     runner = CliRunner()
-    runner.invoke(cli, ["init", str(cli_repo), "--yes"])
+    runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
 
     state = cli_repo / ".tldrgraph"
     request = yaml.safe_load((state / "enrichment_request.yaml").read_text(encoding="utf-8"))
@@ -516,7 +540,7 @@ def test_an_applied_response_is_not_applied_twice(cli_repo):
         yaml.dump([{"id": n["id"], "intent": "Does a thing."} for n in request["nodes"]]),
         encoding="utf-8",
     )
-    runner.invoke(cli, ["init", str(cli_repo), "--yes"])
+    runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
 
     assert not (state / "enrichment_response.yaml").exists()
     assert (state / "enrichment_response.applied.yaml").is_file()
@@ -524,7 +548,7 @@ def test_an_applied_response_is_not_applied_twice(cli_repo):
 
 def test_limit_caps_the_first_pass(cli_repo):
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--batch", "2", "--limit", "2"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes", "--batch", "2", "--limit", "2"])
     assert res.exit_code == 0, res.output
 
     request = yaml.safe_load(
@@ -533,28 +557,26 @@ def test_limit_caps_the_first_pass(cli_repo):
     assert len(request["nodes"]) == 2
 
 
-def test_agent_cli_is_automatic_by_default(monkeypatch, cli_repo, agent_allowed):
+def test_agent_cli_enrichment_is_explicit_opt_in(monkeypatch, cli_repo, agent_allowed):
     calls = []
     monkeypatch.setattr(agent_runner, "find_agent_cli",
                         lambda **kw: calls.append(1) or fake_agent())
     monkeypatch.setattr(agent_runner, "run_agent", lambda *a, **k: _fake_answer(a[1]))
 
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
     assert res.exit_code == 0, res.output
-    assert calls, "init must auto-detect an agent CLI by default"
-    assert "status: done" in res.output
+    assert calls, "explicit --agent-cli must detect an agent CLI"
+    assert "status: needs_feature_workflows" in res.output
 
 
-def test_no_agent_cli_forces_the_manual_handoff(monkeypatch, cli_repo, agent_allowed):
-    calls = []
-    monkeypatch.setattr(agent_runner, "find_agent_cli",
-                        lambda **kw: calls.append(1) or fake_agent())
+def test_no_agent_cli_skips_enrichment_handoff(monkeypatch, cli_repo, agent_allowed):
+    monkeypatch.setattr(agent_runner, "find_agent_cli", lambda **kw: None)
     _answer_layers(cli_repo)
     res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--no-agent-cli"])
     assert res.exit_code == 0, res.output
-    assert calls == []
-    assert "status: needs_enrichment" in res.output
+    assert "status: needs_enrichment" not in res.output
+    assert not (cli_repo / ".tldrgraph" / "enrichment_request.yaml").exists()
 
 
 def test_init_defaults_to_two_hundred_node_batches():
@@ -575,17 +597,17 @@ def test_interactive_init_asks_once_then_finishes(monkeypatch, cli_repo, agent_a
     _answer_layers(cli_repo)
     _stub_agent_cli(monkeypatch)
     monkeypatch.setattr(cli_pipeline, "stdin_is_interactive", lambda: True)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo)], input="\n")
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli"], input="\n")
     assert res.exit_code == 0, res.output
     assert res.output.count("Enrich now?") == 1
-    assert "status: done" in res.output
+    assert "status: needs_feature_workflows" in res.output
 
 
 def test_automatic_agent_keeps_json_output_parseable(monkeypatch, cli_repo, agent_allowed):
     _stub_agent_cli(monkeypatch)
     res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--json"])
     assert res.exit_code == 0, res.output
-    assert json.loads(res.stdout)["status"] == "done"
+    assert json.loads(res.stdout)["status"] == "needs_feature_workflows"
 
 
 def test_embedding_failure_is_resumable(monkeypatch, cli_repo, agent_allowed):
@@ -599,10 +621,10 @@ def test_embedding_failure_is_resumable(monkeypatch, cli_repo, agent_allowed):
 
 def test_agent_cli_runs_the_whole_loop_when_asked(monkeypatch, cli_repo, agent_allowed):
     _stub_agent_cli(monkeypatch)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli", "--llm-links"])
 
     assert res.exit_code == 0, res.output
-    assert "status: done" in res.output
+    assert "status: needs_feature_workflows" in res.output
     snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
     assert any(n.get("enrichment_source") == "agent" for n in snapshot["nodes"])
 
@@ -635,7 +657,7 @@ def test_agent_cli_infers_llm_route_links_during_init(monkeypatch, cli_repo, age
         return _fake_answer(prompt)
 
     _stub_agent_cli(monkeypatch, answer=_answer)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli", "--llm-links"])
 
     assert res.exit_code == 0, res.output
     snapshot = json.loads((cli_repo / ".tldrgraph" / "graph.json").read_text(encoding="utf-8"))
@@ -668,7 +690,7 @@ def test_llm_route_failure_requires_manual_handoff(monkeypatch, cli_repo, agent_
         agent_runner, "agent_status",
         lambda: {"agent": fake_agent(), "reason": "ready", "detail": "Fake fake"},
     )
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--agent-cli", "--llm-links"])
 
     assert res.exit_code == 0, res.output
     assert "status: needs_llm_links" in res.output
@@ -846,7 +868,8 @@ def test_install_writes_the_gitignore_and_the_one_command(tmp_path):
     assert "tldrgraph init" in body
     assert "--batch 200" in body and "--limit 200" in body
     assert "Never add `--limit`" in body and "`--embeddings off` unless" in body
-    assert "without asking the user again" in body
+    assert "Do not complete this" in body
+    assert "Do not\nprocess enrichment batches" in body
     assert "/skills" in body and "$tldrgraph-init" in body
     # Every branch of the state machine must be documented in the command.
     for status in ("needs_layers", "needs_confirmation", "needs_enrichment"):
@@ -1008,7 +1031,7 @@ def test_invented_ids_are_reported_not_silently_dropped(cli_repo):
     """
     _answer_layers(cli_repo)
     runner = CliRunner()
-    runner.invoke(cli, ["init", str(cli_repo), "--yes"])
+    runner.invoke(cli, ["init", str(cli_repo), "--agent-cli", "--yes"])
 
     state = cli_repo / ".tldrgraph"
     request = yaml.safe_load((state / "enrichment_request.yaml").read_text(encoding="utf-8"))
@@ -1106,7 +1129,7 @@ def test_json_mode_emits_parseable_json_only(cli_repo):
     front of the payload and break every parser reading it.
     """
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--json"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--json"])
     assert res.exit_code == 0, res.output
 
     payload = json.loads(res.stdout)
@@ -1120,7 +1143,7 @@ def test_enriched_count_does_not_include_excluded_nodes(cli_repo):
     A fresh graph claimed hundreds enriched before a single intent existed.
     """
     _answer_layers(cli_repo)
-    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--json"])
+    res = CliRunner().invoke(cli, ["init", str(cli_repo), "--agent-cli", "--json"])
     payload = json.loads(res.stdout)
 
     assert payload["progress"]["enriched"] == 0, "nothing has been enriched yet"

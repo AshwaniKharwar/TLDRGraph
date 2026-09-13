@@ -100,15 +100,14 @@ _init_options = [
                  help="Partial-run cap. 0 authorizes every current candidate."),
     click.option("--rebuild", is_flag=True, help="Re-extract and rebuild enrichment from scratch"),
     click.option("--relayer", is_flag=True, help="Discard the layer set and design it again"),
-    click.option("--agent-cli/--no-agent-cli", default=True, show_default=True,
-                 help="Automatically use a supported agent CLI for layers and enrichment; "
-                      "disable to use the file handoff workflow."),
+    click.option("--agent-cli/--no-agent-cli", default=False, show_default=True,
+                 help="Opt in to a supported agent CLI for architecture layers and enrichment."),
     click.option("--agent-model", default=None,
                  help="Model for --agent-cli (e.g. opus, sonnet, gemini-2.5-pro). Defaults "
                       "to $TLDRGRAPH_AGENT_MODEL. Ignored on the handshake path, where your "
                       "own agent session picks the model."),
-    click.option("--llm-links/--no-llm-links", default=True, show_default=True,
-                 help="Infer evidence-backed frontend/backend links during init."),
+    click.option("--llm-links/--no-llm-links", default=False, show_default=True,
+                 help="Opt in to evidence-backed frontend/backend route-link inference during init."),
     click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status"),
     embeddings_option,
 ]

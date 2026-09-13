@@ -212,9 +212,8 @@ def test_auto_configure_layers_with_llm(tmp_path):
 
 def test_no_layer_source_means_no_layers_not_a_template(tmp_path):
     """
-    HARD GATE. TLDRGraph used to synthesize a generic archetype layer set here.
-    That silently became the answer and classified badly. With nothing able to
-    read the code, the only honest result is "ask the agent".
+    Without architecture AI, TLDRGraph writes the honest single-bucket bootstrap
+    layer set instead of asking an agent to design architecture.
     """
     (tmp_path / "pyproject.toml").write_text(
         '[project.scripts]\nmycmd = "mycmd.cli:main"\n', encoding="utf-8"
@@ -222,28 +221,26 @@ def test_no_layer_source_means_no_layers_not_a_template(tmp_path):
     reg, cfg_path, source = auto_configure_layers(
         str(tmp_path), enricher=None, use_llm=False, use_agent=False
     )
-    assert source == NEEDS_LAYERS
-    assert reg is None and cfg_path is None
-    assert not (tmp_path / ".tldrgraph" / "layers.config.yaml").exists(), (
-        "a layer config must never be written without a real source"
-    )
+    assert source == "bootstrap"
+    assert reg is not None and reg.ids() == ("utility",)
+    assert cfg_path and (tmp_path / ".tldrgraph" / "layers.config.yaml").exists()
 
 
 # --------------------------------------------------------------------------- #
 # 4. End-to-End CLI Scan with Dynamic Layers
 # --------------------------------------------------------------------------- #
 
-def test_cli_propose_layers_falls_through_to_a_request(tmp_path):
-    """With nothing able to read the code, --auto must queue a request, not a template."""
+def test_cli_propose_layers_auto_uses_bootstrap_without_ai(tmp_path):
+    """With no architecture AI, --auto writes the honest bootstrap layer."""
     (tmp_path / "pyproject.toml").write_text(
         '[project.scripts]\ntool = "tool.cli:main"\n', encoding="utf-8"
     )
     runner = CliRunner()
     res = runner.invoke(cli, ["propose-layers", "--path", str(tmp_path), "--auto"])
     assert res.exit_code == 0
-    assert "no template to fall back on" in res.output
-    assert (tmp_path / ".tldrgraph" / "propose_layers_request.json").is_file()
-    assert not (tmp_path / ".tldrgraph" / "layers.config.yaml").exists()
+    assert "bootstrap" in res.output
+    assert not (tmp_path / ".tldrgraph" / "propose_layers_request.json").exists()
+    assert (tmp_path / ".tldrgraph" / "layers.config.yaml").exists()
 
 
 def test_cli_scan_initializes_dynamic_layers_automatically(tmp_path):
@@ -266,28 +263,9 @@ def test_cli_scan_initializes_dynamic_layers_automatically(tmp_path):
     runner = CliRunner()
     res = runner.invoke(cli, ["scan", str(tmp_path)])
     assert res.exit_code == 0
-    # No agent is reachable in tests, so the scan must stop and ask rather than
-    # classify this repo with layers it never derived.
-    assert "status: needs_layers" in res.output
-    assert "tldrgraph init" in res.output
+    assert "status: needs_layers" not in res.output
 
-    assert not (tmp_path / ".tldrgraph" / "layers.config.yaml").exists()
-
-    # The request the agent is asked to answer must actually be there, carrying
-    # the symbols extraction already found -- filenames alone are not evidence.
-    request = tmp_path / ".tldrgraph" / "propose_layers_request.json"
-    assert request.is_file()
-    payload = json.loads(request.read_text(encoding="utf-8"))
-    assert payload["evidence"]["extracted_symbols"]["total_symbols"] > 0
-
-    # Answer it the way an agent would, and the next run gets all the way through.
-    (tmp_path / ".tldrgraph" / "propose_layers_response.json").write_text(
-        json.dumps(SAMPLE_LAYER_SET), encoding="utf-8"
-    )
-    res2 = runner.invoke(cli, ["init", str(tmp_path)])
-    assert res2.exit_code == 0, res2.output
-    assert "status: needs_layers" not in res2.output
-    assert (tmp_path / ".tldrgraph" / "layers.config.yaml").is_file()
+    assert (tmp_path / ".tldrgraph" / "layers.config.yaml").exists()
 
     res_layers = runner.invoke(cli, ["layers", "--path", str(tmp_path)])
     assert res_layers.exit_code == 0

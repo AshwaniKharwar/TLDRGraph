@@ -642,7 +642,8 @@ def test_rules_tell_the_agent_to_read_the_source_and_not_invent(tmp_path):
     assert "0.35" in contract
 
     command = Path(written["Claude Code (command)"]).read_text(encoding="utf-8").lower()
-    assert "open the source file of every node" in command
+    assert "do not complete this" in command
+    assert "do not\nprocess enrichment batches" in command
     assert "never invent" in command
 
 
@@ -716,8 +717,8 @@ def test_contract_documents_persistent_full_campaign_approval(tmp_path):
     written = installer_module.install_agent_rules(str(tmp_path))
     text = Path(written["contract"]).read_text(encoding="utf-8")
     assert "enrichment_approval.json" in text
-    assert "--batch 200" in text and "--limit 200" in text
-    assert "without asking" in text
+    assert "--agent-cli" in text and "--limit" in text
+    assert "explicitly asks" in text
     assert "Never add" in text and "--embeddings off" in text
 
 

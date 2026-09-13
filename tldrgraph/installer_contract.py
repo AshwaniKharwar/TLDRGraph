@@ -32,22 +32,20 @@ def generate_layers_prose(registry: Optional[LayerRegistry] = None) -> str:
     return "\n".join(lines)
 
 
-_LOOP = """One command does everything -- layers, extraction, enrichment, LLM route links, and embeddings:
+_LOOP = """One command does extraction, saved feature workflows, and embeddings:
 
 ```bash
-tldrgraph init          # agents auto-approve full runs; terminals may ask once
-tldrgraph init --yes    # non-agent explicit approval when confirmation asks for it
+tldrgraph init
 ```
 
-`init` automatically detects a supported agent CLI, uses 200-node enrichment batches,
-infers evidence-backed frontend/backend route links, and downloads/builds dense embeddings.
-It never guesses: when no agent is usable it prints a manual layer, enrichment, or route-link handoff.
+`init` does not use AI for architecture layer design, all-symbol enrichment,
+route-link inference, or BPMN workflow generation by default. It only attempts
+source-backed saved Feature Workflow Explorer files and writes pending states
+when a full workflow cannot be generated.
 
-Full approval is persisted across continuation runs. In a coding-agent session,
-plain `tldrgraph init` approves the full campaign and nested-agent protection means
-the host agent must read, answer, and apply every 200-node batch without asking again.
-`--batch 200` means all nodes in chunks; `--limit 200` means only 200 total. Never add
-`--limit`, `--no-llm-links`, or `--embeddings off` unless the user explicitly requests it.
+`--agent-cli` is now explicit opt-in for architecture layer design and enrichment.
+Never add `--limit`, `--agent-cli`, `--llm-links`, or `--embeddings off` unless
+the user explicitly requests it.
 
 The underlying steps stay available for scripting:
 
@@ -74,10 +72,11 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
 - **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
   open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
   with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
-  This is required for a complete init run unless the user explicitly requested
-  `--no-llm-links`.
-- **Continue after approval until `status: done`.** A `needs_enrichment` batch is work to
-  process, not a reason to ask again. Do not add `--limit`, `--no-llm-links`, or `--embeddings off`."""
+  This only appears when route-link inference was explicitly enabled with `--llm-links`.
+- **Do not process `needs_layers` or `needs_enrichment` unless requested.** Those
+  states belong to explicit `--agent-cli` architecture/enrichment runs or older builds.
+- **Continue until `status: done`.** Do not add `--limit`, `--agent-cli`,
+  `--llm-links`, or `--embeddings off`."""
 
 _RESPONSE_SCHEMA = """```yaml
 - id: "<node id copied verbatim from the request>"

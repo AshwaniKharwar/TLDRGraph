@@ -164,12 +164,56 @@ def test_generated_html_contains_no_project_source(mini_repo):
 
 
 def test_workflows_payload_structure(mini_repo):
-    """Payload includes extracted workflow sequences mapping methods to files and layers."""
+    """Workflow Explorer reads only saved feature workflow files."""
     from tldrgraph.visualizer import prepare_visualizer_data
+    from tldrgraph.cli_enrichment import write_payload
+    from tldrgraph.feature_workflows import FEATURE_SCHEMA, WORKFLOW_SCHEMA
 
     data = prepare_visualizer_data(str(mini_repo.root))
     assert "workflows" in data
-    assert isinstance(data["workflows"], list)
+    assert data["workflows"] == []
+    assert data["workflow_state"]["state"] == "missing_features"
+
+    write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
+        "schema": FEATURE_SCHEMA,
+        "graph_hash": "test",
+        "features": [{
+            "id": "submit_case",
+            "title": "Submit Case",
+            "audience": "user",
+            "summary": "Send a case through the project.",
+            "status": "generated",
+            "workflow_path": ".tldrgraph/workflows/submit_case.yaml",
+            "evidence": [{
+                "node_id": mini_repo.nid("ui_page"),
+                "symbol": mini_repo.label("ui_page"),
+                "file": mini_repo.source_file("ui_page"),
+                "line": 1,
+            }],
+        }],
+    })
+    write_payload(str(mini_repo.tldrgraph_dir / "workflows" / "submit_case.yaml"), {
+        "schema": WORKFLOW_SCHEMA,
+        "graph_hash": "test",
+        "feature_id": "submit_case",
+        "title": "Submit Case",
+        "summary": "Send a case through the project.",
+        "status": "generated",
+        "steps": [{
+            "number": 1,
+            "title": "Open the case page",
+            "text": "The user starts from the case page.",
+            "evidence": [{
+                "node_id": mini_repo.nid("ui_page"),
+                "symbol": mini_repo.label("ui_page"),
+                "file": mini_repo.source_file("ui_page"),
+                "line": 1,
+            }],
+        }],
+    })
+
+    data = prepare_visualizer_data(str(mini_repo.root))
+    assert len(data["workflows"]) == 1
 
     for wf in data["workflows"]:
         assert "id" in wf
@@ -187,36 +231,24 @@ def test_workflows_payload_structure(mini_repo):
             assert "node_id" in s
 
 
-def test_workflow_extraction_is_not_capped_at_twenty(monkeypatch):
-    """Every distinct feature journey is retained after curated workflows."""
-    import networkx as nx
-    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+def test_workflow_explorer_does_not_call_discovery_or_bpmn(monkeypatch, mini_repo):
+    """The tab is file-driven, not discovered from routes, blueprints, or BPMN."""
+    from tldrgraph.visualizer import prepare_visualizer_data
+    import tldrgraph.visualizer.bpmn_data
+    import tldrgraph.visualizer.flows_data
+    import tldrgraph.visualizer.flows_discover
 
-    graph = nx.DiGraph()
-    nodes_by_id = {}
-    for index in range(21):
-        root = f"root_{index}"
-        handler = f"handler_{index}"
-        store = f"store_{index}"
-        for node_id, label, path in (
-            (root, f"OrdersPage{index}()", f"frontend/src/app/orders_{index}/page.tsx"),
-            (handler, f"handleOrder{index}()", f"backend/src/orders_{index}.controller.ts"),
-            (store, f"saveOrder{index}()", f"src/data/orders_{index}.py"),
-        ):
-            nodes_by_id[node_id] = {
-                "label": label, "file": path,
-                "layer_id": "ui" if node_id == root else ("api" if node_id == handler else "data"),
-                "layer": "UI" if node_id == root else ("API" if node_id == handler else "Data"),
-                "is_test": False,
-            }
-            graph.add_node(node_id, label=label, file=path)
-        graph.add_edge(root, handler, relation="llm_http_route_link")
-        graph.add_edge(handler, store, relation="calls")
+    def boom(*_args, **_kwargs):
+        raise AssertionError("old Workflow Explorer discovery path was called")
 
-    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
-    workflows = extract_visualizer_workflows(graph, nodes_by_id, sources=None)  # type: ignore[arg-type]
+    monkeypatch.setattr("tldrgraph.visualizer.flows_discover.discover_workflows", boom)
+    monkeypatch.setattr("tldrgraph.visualizer.flows_data.extract_visualizer_workflows", boom)
+    monkeypatch.setattr("tldrgraph.visualizer.bpmn_data.attach_bpmn_processes", boom)
 
-    assert len(workflows) == 21
+    data = prepare_visualizer_data(str(mini_repo.root))
+
+    assert data["workflows"] == []
+    assert data["workflow_state"]["state"] == "missing_features"
 
 
 def test_next_root_page_is_a_workflow_entry_with_one_component_edge():
@@ -400,64 +432,10 @@ def test_frontend_component_beats_api_wrapper_as_feature_flow_root():
     assert [step["node_id"] for step in workflows[0]["steps"]] == ["prompt", "api", "endpoint", "handler"]
 
 
-def test_visualizer_keeps_only_complete_frontend_to_backend_flows(monkeypatch):
+def test_saved_feature_generation_ignores_route_link_relations():
     import networkx as nx
-    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
-
-    graph = nx.DiGraph()
-    nodes = {
-        "page": {
-            "label": "CasesPage()", "file": "frontend/src/app/cases/page.tsx",
-            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
-        },
-        "handler": {
-            "label": "createCase()", "file": "backend/src/cases.controller.ts",
-            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
-        },
-        "service": {
-            "label": "createCaseRecord()", "file": "backend/src/cases.service.ts",
-            "layer_id": "application_services", "layer": "Application Services", "is_test": False,
-        },
-        "backend_only": {
-            "label": "nightlySync()", "file": "backend/src/jobs/sync.ts",
-            "layer_id": "async", "layer": "Async", "is_test": False,
-        },
-        "backend_service": {
-            "label": "syncCases()", "file": "backend/src/cases.service.ts",
-            "layer_id": "service", "layer": "Service", "is_test": False,
-        },
-        "backend_endpoint": {
-            "label": "GET /cases/sync", "file": "backend/src/routes/cases.ts",
-            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
-        },
-        "ui_only": {
-            "label": "HelpPage()", "file": "frontend/src/app/help/page.tsx",
-            "layer_id": "ui", "layer": "UI", "is_test": False,
-        },
-        "component": {
-            "label": "HelpContent()", "file": "frontend/src/app/help/HelpContent.tsx",
-            "layer_id": "ui", "layer": "UI", "is_test": False,
-        },
-    }
-    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
-    graph.add_edge("page", "handler", relation="llm_http_route_link")
-    graph.add_edge("handler", "service", relation="calls")
-    graph.add_edge("backend_only", "backend_service", relation="calls_endpoint")
-    graph.add_edge("backend_service", "backend_endpoint", relation="calls")
-    graph.add_edge("ui_only", "component", relation="calls")
-
-    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
-    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
-
-    assert [w["root_id"] for w in workflows] == ["page"]
-    assert workflows[0]["feature_flow"] is True
-    assert workflows[0]["completeness"] == "frontend_to_backend"
-    assert workflows[0]["route_link_relation"] == "llm_http_route_link"
-
-
-def test_visualizer_uses_deterministic_route_link_as_fallback(monkeypatch):
-    import networkx as nx
-    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
+    import yaml
+    from tldrgraph.feature_workflows import generate_feature_workflow_files, load_saved_feature_workflows, workflow_path
 
     graph = nx.DiGraph()
     nodes = {
@@ -472,34 +450,16 @@ def test_visualizer_uses_deterministic_route_link_as_fallback(monkeypatch):
     }
     graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
     graph.add_edge("page", "handler", relation="http_route_link")
+    graph.add_edge("handler", "store", relation="calls")
 
-    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
-    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
+    import tempfile
 
-    assert len(workflows) == 1
-    assert workflows[0]["route_link_relation"] == "http_route_link"
+    with tempfile.TemporaryDirectory() as root:
+        generate_feature_workflow_files(root, graph, use_agent=True)
+        raw = yaml.safe_load(open(workflow_path(root, "orderspage"), encoding="utf-8"))
+        payload = load_saved_feature_workflows(root)
 
-
-def test_visualizer_accepts_legacy_endpoint_calls_as_route_fallback(monkeypatch):
-    import networkx as nx
-    from tldrgraph.visualizer.flows_data import extract_visualizer_workflows
-
-    graph = nx.DiGraph()
-    nodes = {
-        "page": {
-            "label": "BillingPage()", "file": "frontend/src/app/billing/page.tsx",
-            "layer_id": "client_experience", "layer": "Client Experience", "is_test": False,
-        },
-        "endpoint": {
-            "label": "GET /billing/pricing", "file": "backend/src/routes/billing.ts",
-            "layer_id": "api_delivery", "layer": "API Delivery", "is_test": False,
-        },
-    }
-    graph.add_nodes_from((node_id, data) for node_id, data in nodes.items())
-    graph.add_edge("page", "endpoint", relation="calls_endpoint")
-
-    monkeypatch.setattr("tldrgraph.visualizer.flows_data.CURATED_BLUEPRINTS", [])
-    workflows = extract_visualizer_workflows(graph, nodes, sources=None)  # type: ignore[arg-type]
-
-    assert len(workflows) == 1
-    assert workflows[0]["route_link_relation"] == "calls_endpoint"
+    assert payload["workflows"]
+    assert payload["workflows"][0]["status"] == "pending"
+    outgoing = raw["evidence_nodes"][0]["outgoing"]
+    assert all(item["target"]["node_id"] != "handler" for item in outgoing)

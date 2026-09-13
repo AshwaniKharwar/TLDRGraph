@@ -1,6 +1,4 @@
-"""
-Init workflow pipeline for TLDRGraph CLI.
-"""
+"""Init workflow pipeline for TLDRGraph CLI."""
 
 from __future__ import annotations
 
@@ -10,16 +8,16 @@ import os
 import sys
 from typing import Any, Dict, List, Optional
 import click
-
-from . import agent_runner, paths
+from . import agent_runner
 from .cli_agent_loop import run_agent_enrichment
 from .cli_enrichment import (
     AGENT_ENRICHMENT_SOURCE, REQUEST_FILENAME, RESPONSE_FILENAME, STATE_DIR,
     apply_enrichment_items, build_enrichment_batch, coerce_enrichment_items,
-    compute_degrees, enrichment_candidates, needs_agent_enrichment, read_payload,
+    compute_degrees, enrichment_candidates, read_payload,
     stamp_degrees, state_path, write_payload,
 )
 from .cli_llm_links import apply_pending_llm_links_response, run_llm_link_step
+from .feature_workflows import generate_feature_workflow_files
 from .graph_loader import GraphLoader
 from .installer import ensure_gitignore, install_agent_rules
 from .layer_config import config_path
@@ -34,13 +32,14 @@ from .propose_layers import (
     auto_configure_layers, generate_propose_request,
 )
 from .visualizer import generate_visualizer_html
-
 STATUS_DONE = "done"
 STATUS_NEEDS_LAYERS = "needs_layers"
 STATUS_NEEDS_CONFIRMATION = "needs_confirmation"
 STATUS_NEEDS_ENRICHMENT = "needs_enrichment"
 STATUS_NEEDS_EMBEDDINGS = "needs_embeddings"
+STATUS_NEEDS_FEATURE_WORKFLOWS = "needs_feature_workflows"
 APPLIED_RESPONSE_FILENAME = "enrichment_response.applied.yaml"
+
 @contextlib.contextmanager
 def stdout_to_stderr_if(active: bool):
     if not active:
@@ -49,13 +48,11 @@ def stdout_to_stderr_if(active: bool):
     with contextlib.redirect_stdout(sys.stderr):
         yield
 
-
 def stdin_is_interactive() -> bool:
     try:
         return bool(sys.stdin and sys.stdin.isatty())
     except Exception:
         return False
-
 
 def emit_status(status: str, phase: str, lines: List[str], progress: Optional[Dict[str, Any]] = None, as_json: bool = False) -> None:
     if as_json:
@@ -76,14 +73,12 @@ def emit_status(status: str, phase: str, lines: List[str], progress: Optional[Di
         click.echo(line)
     click.echo(f"{rule}\n")
 
-
 def apply_pending_layer_response(path: str) -> Optional[str]:
     for filename in (PROPOSE_RESPONSE_FILENAME, "propose_layers_response.yaml"):
         candidate = state_path(path, filename)
         if os.path.isfile(candidate):
             return apply_proposed_layers(path, candidate)
     return None
-
 
 def apply_pending_enrichment_response(path: str, loader: GraphLoader) -> Optional[Dict[str, Any]]:
     for filename in (RESPONSE_FILENAME, "enrichment_response.json", "pending_enrichment.yaml", "pending_enrichment.json"):
@@ -99,7 +94,6 @@ def apply_pending_enrichment_response(path: str, loader: GraphLoader) -> Optiona
                 pass
             return stats
     return None
-
 
 def _check_confirmation(candidates: List[Dict[str, Any]], total: int, enriched: int, excluded: int, rounds: int, batch_size: int, progress: Dict[str, Any], as_json: bool) -> Optional[str]:
     if stdin_is_interactive():
@@ -128,6 +122,7 @@ def _run_agent_cli_enrichment(
     progress: Dict[str, Any],
     as_json: bool,
     llm_links: bool,
+    feature_stats: Optional[Dict[str, Any]] = None,
 ) -> Optional[str]:
     agent = agent_runner.find_agent_cli()
     if agent is None:
@@ -148,8 +143,9 @@ def _run_agent_cli_enrichment(
             link_status = run_llm_link_step(path, os.path.abspath(path), loader, True, agent_model, as_json, emit_status)
             if link_status: return link_status
     embedding_error = None if rem else _embedding_failure(loader)
+    pending_workflows = int((feature_stats or {}).get("pending") or 0)
     status = STATUS_NEEDS_ENRICHMENT if rem else (
-        STATUS_NEEDS_EMBEDDINGS if embedding_error else STATUS_DONE
+        STATUS_NEEDS_EMBEDDINGS if embedding_error else (STATUS_NEEDS_FEATURE_WORKFLOWS if pending_workflows else STATUS_DONE)
     )
     resume = "tldrgraph init" if progress.get("approval_persisted") else "tldrgraph init --yes"
     retry = [f"Run `{resume}` to continue."] if rem or embedding_error else []
@@ -157,9 +153,10 @@ def _run_agent_cli_enrichment(
         f"Enriched {totals['applied']} node(s) in {totals['batches']} batch(es); {totals['bridges']} bridge edge(s).",
         f"⚠️  {totals['intent_length_violations']} intent(s) were outside the recommended 2-3 sentences." if totals["intent_length_violations"] else "All applied intents met the recommended 2-3 sentence length.",
         f"{rem} still un-enriched." if rem else "Nothing left to enrich.",
+        f"{pending_workflows} feature workflow file(s) still need source-backed steps." if pending_workflows and not rem else "",
         f"Dense embeddings could not be completed: {embedding_error}" if embedding_error else _embedding_summary(loader),
     ] + retry,
-        progress={**progress, "remaining": rem, "embedding_backend": loader.vector_store.backend}, as_json=as_json)
+        progress={**progress, "remaining": rem, "feature_workflows_pending": pending_workflows, "embedding_backend": loader.vector_store.backend}, as_json=as_json)
     return status
 
 
@@ -186,10 +183,10 @@ def _emit_manual_enrichment_handoff(
     ], progress=progress, as_json=as_json)
     return STATUS_NEEDS_ENRICHMENT
 
-
-def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, excluded: int, registry: Any, as_json: bool) -> str:
+def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, excluded: int, registry: Any, as_json: bool, feature_stats: Optional[Dict[str, Any]] = None) -> str:
     embedding_error = _embedding_failure(loader)
-    status = STATUS_NEEDS_EMBEDDINGS if embedding_error else STATUS_DONE
+    pending_workflows = int((feature_stats or {}).get("pending") or 0)
+    status = STATUS_NEEDS_EMBEDDINGS if embedding_error else (STATUS_NEEDS_FEATURE_WORKFLOWS if pending_workflows else STATUS_DONE)
     lines = [
         f"{total} nodes across {len(registry)} layers. {enriched} enriched from source; {excluded} not eligible (utility bucket and prose nodes).",
         "",
@@ -200,19 +197,21 @@ def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, exclud
             "Run `tldrgraph init` again after fixing model access.",
         ])
     else:
-        lines.extend([
-        _embedding_summary(loader),
-        "",
-        '  tldrgraph query "<feature in plain English>"',
-        '  tldrgraph trace "<Source>" "<Target>"',
-        "  tldrgraph layers",
-        "  tldrgraph ui --serve",
-        ])
+        workflow_lines = [
+            f"{pending_workflows} feature workflow file(s) still need source-backed steps.",
+            "  1. Open .tldrgraph/features.yaml",
+            "  2. Complete each pending .tldrgraph/workflows/<feature_id>.yaml",
+            "  3. Run: tldrgraph init",
+        ] if pending_workflows else ["Feature workflow files are complete."]
+        lines.extend([_embedding_summary(loader), "", *workflow_lines, "",
+                      '  tldrgraph query "<feature in plain English>"',
+                      '  tldrgraph trace "<Source>" "<Target>"',
+                      "  tldrgraph layers", "  tldrgraph ui --serve"])
     emit_status(status, "embeddings" if embedding_error else "enrichment", lines,
                 progress={"total_nodes": total, "enriched": enriched, "remaining": 0,
+                          "feature_workflows_pending": pending_workflows,
                           "embedding_backend": loader.vector_store.backend}, as_json=as_json)
     return status
-
 
 def _handle_enrichment_step(
     path: str,
@@ -226,6 +225,7 @@ def _handle_enrichment_step(
     agent_model: Optional[str],
     as_json: bool,
     llm_links: bool,
+    feature_stats: Optional[Dict[str, Any]] = None,
 ) -> str:
     candidates = enrichment_candidates(loader, compute_degrees(loader.graph))
     total = loader.graph.number_of_nodes()
@@ -240,7 +240,7 @@ def _handle_enrichment_step(
         if llm_links:
             link_status = run_llm_link_step(path, root, loader, agent_cli, agent_model, as_json, emit_status)
             if link_status: return link_status
-        return _emit_enrichment_done(loader, total, enriched, excluded, registry, as_json)
+        return _emit_enrichment_done(loader, total, enriched, excluded, registry, as_json, feature_stats)
 
     planned = min(len(candidates), max_nodes) if max_nodes else len(candidates)
     rounds = (planned + batch_size - 1) // batch_size
@@ -255,6 +255,8 @@ def _handle_enrichment_step(
         "approval_persisted": enrichment_approval_is_active(path, candidates),
     }
 
+    if not agent_cli:
+        return _emit_enrichment_done(loader, total, enriched, excluded, registry, as_json, feature_stats)
     agent_marker = agent_runner.nesting_marker()
     auto_agent_approved = bool(agent_marker) and not max_nodes
     authorized = assume_yes or enrichment_approval_is_active(path, candidates) or auto_agent_approved
@@ -270,10 +272,9 @@ def _handle_enrichment_step(
         remember_full_enrichment_approval(path, candidates)
         progress["approval_persisted"] = True
 
-    if agent_cli:
-        res = _run_agent_cli_enrichment(path, loader, batch_size, max_nodes, agent_model, progress, as_json, llm_links)
-        if res is not None:
-            return res
+    res = _run_agent_cli_enrichment(path, loader, batch_size, max_nodes, agent_model, progress, as_json, llm_links, feature_stats)
+    if res is not None:
+        return res
 
     return _emit_manual_enrichment_handoff(path, root, loader, candidates, progress, batch_size, max_nodes, as_json)
 
@@ -294,7 +295,7 @@ def _ensure_layers_configured(
 
     notes: List[str] = []
     registry, cfg_path, source = auto_configure_layers(
-        path, force=relayer and not applied_cfg, use_agent=agent_cli,
+        path, force=relayer and not applied_cfg, use_llm=agent_cli, use_agent=agent_cli,
         agent_model=agent_model, notes=notes,
     )
     for note in notes:
@@ -323,7 +324,6 @@ def _ensure_layers_configured(
 
     return registry, cfg_path, source
 
-
 def _report_enrichment_applied_status(applied: Optional[Dict[str, Any]], as_json: bool) -> None:
     if not applied or as_json:
         return
@@ -335,7 +335,6 @@ def _report_enrichment_applied_status(applied: Optional[Dict[str, Any]], as_json
     if applied["unresolved"]:
         preview = ", ".join(sorted(set(applied["unresolved"]))[:4])
         click.echo(f"   ⚠️  {len(applied['unresolved'])} call target(s) matched nothing above the score floor: {preview}")
-
 
 def init_pipeline(
     path: str,
@@ -367,7 +366,7 @@ def init_pipeline(
         loader._run_graphify()
     loader.file_hashes = loader._load_file_hashes()
 
-    registry, cfg_path, source = _ensure_layers_configured(path, root, relayer, agent_cli, agent_model, as_json)
+    registry, _, _ = _ensure_layers_configured(path, root, relayer, agent_cli, agent_model, as_json)
     if registry is None:
         return STATUS_NEEDS_LAYERS
 
@@ -388,8 +387,12 @@ def init_pipeline(
         if link_applied and not as_json:
             click.echo(f"🔗 Applied {len(link_applied['applied'])} LLM route link(s)")
 
+    feature_stats = generate_feature_workflow_files(path, loader.graph, agent_model=agent_model, use_agent=False)
+    if not as_json:
+        click.echo(f"🧭 Feature workflows: {feature_stats['generated']} generated, {feature_stats['pending']} pending across {feature_stats['features']} feature(s)")
+        if feature_stats["pending"]:
+            click.echo("   Current agent must complete pending .tldrgraph/workflows/*.yaml files from source evidence.")
+
     generate_visualizer_html(path)
 
-    return _handle_enrichment_step(
-        path, root, loader, registry, assume_yes, batch_size, max_nodes, agent_cli, agent_model, as_json, llm_links
-    )
+    return _handle_enrichment_step(path, root, loader, registry, assume_yes, batch_size, max_nodes, agent_cli, agent_model, as_json, llm_links, feature_stats)
