@@ -2935,17 +2935,16 @@ function fitWorkflowView(animate) {
 }
 
 // -------------------------------------------------------------
-// Layout: the journey runs as one straight line of steps, and what happens
-// inside a step - its decisions, each outcome, its failure paths - hangs
-// underneath it. Read the line to follow the story; look down from a step to
-// see how it decides.
+// Layout: the journey runs top to bottom, and what happens inside a step - its
+// decisions, each outcome, its failure paths - hangs underneath it. Read down
+// the page to follow the story; look below a step to see how it decides.
 // -------------------------------------------------------------
 const NODE_GAP = 96;              // space between two steps on the line
 const BRANCH_TOP = 118;           // drop from the line to the first shape below
 const BRANCH_STEP = 92;           // drop between shapes down a branch
 const BRANCH_GAP = 30;            // space between two shapes side by side
 const BRANCH_PER_LEVEL = 2;       // branch shapes across before stacking down
-const SPINE_PER_ROW = 5;          // steps on the line before it wraps
+const SPINE_PER_ROW = 1;          // one journey step per vertical row
 const ROW_DROP = 150;             // space under a row's deepest branch
 const STEP_LABEL_H = 18;          // breathing room above a row
 const TASK_W = 268;               // wider than a symbol card: the titles are sentences
@@ -3193,8 +3192,8 @@ function buildWorkflowLayout(w) {
 
   closeRow(groups.length);
 
-  // The line joins step to step; each step drops into its own internals; the
-  // shapes inside a step keep the flows the extractor found between them.
+  // The line joins steps vertically; each step drops into its own internals;
+  // the shapes inside a step keep the flows the extractor found between them.
   const placedById = new Map(flowNodes.map(n => [n.id, n]));
   const stepOf = new Map(visible.map(e => [e.id, e.step === undefined || e.step === null ? 0 : e.step]));
   const rebuilt = [];
@@ -3212,12 +3211,7 @@ function buildWorkflowLayout(w) {
     rebuilt.push({ ...f, source: source });
   });
 
-  flowEdges = rebuilt.map(f => {
-    const a = placedById.get(f.source);
-    const b = placedById.get(f.target);
-    if (a && b && a.row !== b.row && f.kind !== 'loop_back') return { ...f, kind: 'wrap' };
-    return f;
-  });
+  flowEdges = rebuilt;
 
   flowRowWidth = widest;
   flowBounds = {
@@ -3576,7 +3570,7 @@ function drawWorkflowCanvas() {
   flowCtx.translate(flowPanX, flowPanY);
   flowCtx.scale(flowScale, flowScale);
 
-  // 1. The main line each row runs along, drawn behind everything else.
+  // 1. The main journey is connected by the vertical sequence connectors.
   flowRows.forEach(row => {
     const onRow = flowNodes.filter(n => n.onSpine && n.row === row.index);
     if (onRow.length < 2) return;
