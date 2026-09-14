@@ -55,20 +55,35 @@ def fake_agent(name: str = "fake") -> agent_runner.AgentCLI:
 
 
 def complete_pending_workflows(root: Path) -> None:
-    manifest = yaml.safe_load((root / ".tldrgraph" / "features.yaml").read_text(encoding="utf-8"))
-    for feature in manifest.get("features", []):
-        path = root / feature["workflow_path"]
-        workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
-        evidence_nodes = workflow.get("evidence_nodes") or []
-        evidence = (evidence_nodes[0] if evidence_nodes else {}).get("evidence") or (feature.get("evidence") or [{}])[0]
-        workflow["status"] = "generated"
-        workflow["steps"] = [{
-            "number": 1,
-            "title": f"Run {feature['title']}",
-            "text": "The current agent completed this workflow from source evidence.",
+    state = root / ".tldrgraph"
+    request = yaml.safe_load((state / "feature_workflows_request.yaml").read_text(encoding="utf-8"))
+    evidence = request["candidates"][0]["root"]
+    response = {
+        "schema": "codechakra/feature-workflows-response@1",
+        "graph_hash": request["graph_hash"],
+        "features": [{
+            "id": "run_sample_cli",
+            "title": "Run Sample CLI",
+            "audience": "developer",
+            "summary": "Run the sample command through its engine.",
             "evidence": [evidence],
-        }]
-        path.write_text(yaml.safe_dump(workflow, sort_keys=False), encoding="utf-8")
+            "workflow": {
+                "status": "generated",
+                "summary": "Invoke the command and return the engine result.",
+                "steps": [
+                    {"number": 1, "phase": "backend", "title": "Invoke command",
+                     "text": "The developer invokes the command entrypoint.", "evidence": [evidence]},
+                    {"number": 2, "phase": "backend", "title": "Run engine",
+                     "text": "The entrypoint runs the source-backed engine work.", "evidence": [evidence]},
+                    {"number": 3, "phase": "response", "title": "Return result",
+                     "text": "The command returns the engine result.", "evidence": [evidence]},
+                ],
+            },
+        }],
+    }
+    (state / "feature_workflows_response.yaml").write_text(
+        yaml.safe_dump(response, sort_keys=False), encoding="utf-8"
+    )
 
 
 @pytest.fixture
@@ -601,13 +616,16 @@ def test_interactive_init_asks_once_then_finishes(monkeypatch, cli_repo, agent_a
     assert res.exit_code == 0, res.output
     assert res.output.count("Enrich now?") == 1
     assert "status: needs_feature_workflows" in res.output
+    assert "Delegate the entire request to a source-reading subagent" in res.output
 
 
 def test_automatic_agent_keeps_json_output_parseable(monkeypatch, cli_repo, agent_allowed):
     _stub_agent_cli(monkeypatch)
     res = CliRunner().invoke(cli, ["init", str(cli_repo), "--yes", "--json"])
     assert res.exit_code == 0, res.output
-    assert json.loads(res.stdout)["status"] == "needs_feature_workflows"
+    payload = json.loads(res.stdout)
+    assert payload["status"] == "needs_feature_workflows"
+    assert any("source-reading subagent" in line for line in payload["next_action"])
 
 
 def test_embedding_failure_is_resumable(monkeypatch, cli_repo, agent_allowed):

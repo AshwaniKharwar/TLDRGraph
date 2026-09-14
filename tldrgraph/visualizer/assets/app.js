@@ -2731,6 +2731,7 @@ function renderWorkflowsList() {
     const messages = {
       missing_features: 'No feature manifest found. Run tldrgraph init to create .tldrgraph/features.yaml.',
       invalid_features: '.tldrgraph/features.yaml is invalid. Run tldrgraph init to refresh it.',
+      stale_features: 'Saved feature workflows are stale. Complete the host-agent subagent handoff from .tldrgraph/feature_workflows_request.yaml.',
       empty_features: 'No features were saved for this project yet.',
       ready: allWorkflows.length ? 'No matching saved workflows found.' : 'No saved feature workflows found.',
     };

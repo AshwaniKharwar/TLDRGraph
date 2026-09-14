@@ -42,6 +42,13 @@ def load_feature_manifest(root: str) -> Tuple[Optional[Dict[str, Any]], str]:
     features = data.get("features")
     if not isinstance(features, list):
         return None, "invalid_features"
+    request = read_payload(os.path.join(root, ".tldrgraph", "feature_workflows_request.yaml"))
+    if (
+        isinstance(request, dict)
+        and request.get("graph_hash")
+        and request.get("graph_hash") != data.get("graph_hash")
+    ):
+        return None, "stale_features"
     if not features:
         return data, "empty_features"
     return data, "ready"

@@ -8,17 +8,16 @@ description: Build or continue this repository's TLDRGraph architecture graph (l
 In Claude Code or Cursor, invoke `/tldrgraph-init`; in Codex CLI, select
 `tldrgraph-init` from `/skills` or mention `$tldrgraph-init`.
 
-One command handles extraction, feature-file scaffolding, and embeddings:
+One command handles extraction, feature-workflow handoff, and embeddings:
 
 ```bash
 tldrgraph init
 ```
 
-By default TLDRGraph does not ask another AI process to design architecture
-layers, enrich every symbol, infer route links, or generate BPMN workflows. It
-writes `.tldrgraph/features.yaml` and one `.tldrgraph/workflows/<feature_id>.yaml`
-file per feature. The coding agent that ran `tldrgraph init` owns completing any
-pending workflow files from source evidence.
+TLDRGraph never launches an AI process for feature generation and never invents
+heuristic features. When feature artifacts are missing or stale, it writes
+`.tldrgraph/feature_workflows_request.yaml`. The coding agent that ran
+`tldrgraph init` must delegate that request to a source-reading subagent.
 
 Use exactly `tldrgraph init` for this workflow. Add `--yes` only if a non-agent
 `needs_confirmation` response explicitly asks for approval. `--batch 200` means
@@ -28,16 +27,18 @@ explicitly requests it.
 
 ## Feature Workflow Explorer artifacts
 
-Every init run writes `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`.
+An accepted subagent response writes `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`.
 Workflow Explorer reads only those files; missing or invalid workflows show pending states.
 Do not restore discovery through `discover_workflows()`, curated blueprints, route-link workflow discovery, route-link relations, or BPMN generation.
 Each plain-language step needs source evidence. Start at the button/menu/form action and continue through client request, backend work, response payload, client handling, and final UI update when proven.
-When `init` reports pending feature workflows:
+Do not set `status: generated` unless the saved steps cover the end-to-end flow for the proven feature boundary.
+Do not use route-link relations as workflow evidence: `llm_http_route_link`, `http_route_link`, or `calls_endpoint`.
+When `init` reports `status: needs_feature_workflows`:
 
-1. Open `.tldrgraph/features.yaml`.
-2. Open every pending `.tldrgraph/workflows/<feature_id>.yaml`.
-3. Open the source files referenced in `evidence_nodes`; do not guess.
-4. Replace `steps: []` with source-backed steps and set `status: generated`.
+1. Open `.tldrgraph/feature_workflows_request.yaml`.
+2. Spawn a source-reading subagent and delegate the entire request to it.
+3. Have the subagent inspect the referenced files and write both features and complete workflows to `.tldrgraph/feature_workflows_response.yaml`.
+4. Do not edit `features.yaml` or `workflows/*.yaml` directly; TLDRGraph validates and applies the response.
 5. Run `tldrgraph init` again.
 
 ## `status: needs_layers`

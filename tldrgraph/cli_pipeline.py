@@ -18,6 +18,7 @@ from .cli_enrichment import (
 )
 from .cli_llm_links import apply_pending_llm_links_response, run_llm_link_step
 from .feature_workflows import generate_feature_workflow_files
+from .feature_workflow_handoff import feature_workflow_status_lines
 from .graph_loader import GraphLoader
 from .installer import ensure_gitignore, install_agent_rules
 from .layer_config import config_path
@@ -149,13 +150,13 @@ def _run_agent_cli_enrichment(
     )
     resume = "tldrgraph init" if progress.get("approval_persisted") else "tldrgraph init --yes"
     retry = [f"Run `{resume}` to continue."] if rem or embedding_error else []
+    feature_lines = feature_workflow_status_lines(path, feature_stats) if pending_workflows and not rem and not embedding_error else []
     emit_status(status, "embeddings" if embedding_error else "enrichment", [
         f"Enriched {totals['applied']} node(s) in {totals['batches']} batch(es); {totals['bridges']} bridge edge(s).",
         f"⚠️  {totals['intent_length_violations']} intent(s) were outside the recommended 2-3 sentences." if totals["intent_length_violations"] else "All applied intents met the recommended 2-3 sentence length.",
         f"{rem} still un-enriched." if rem else "Nothing left to enrich.",
-        f"{pending_workflows} feature workflow file(s) still need source-backed steps." if pending_workflows and not rem else "",
         f"Dense embeddings could not be completed: {embedding_error}" if embedding_error else _embedding_summary(loader),
-    ] + retry,
+    ] + feature_lines + retry,
         progress={**progress, "remaining": rem, "feature_workflows_pending": pending_workflows, "embedding_backend": loader.vector_store.backend}, as_json=as_json)
     return status
 
@@ -183,6 +184,7 @@ def _emit_manual_enrichment_handoff(
     ], progress=progress, as_json=as_json)
     return STATUS_NEEDS_ENRICHMENT
 
+
 def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, excluded: int, registry: Any, as_json: bool, feature_stats: Optional[Dict[str, Any]] = None) -> str:
     embedding_error = _embedding_failure(loader)
     pending_workflows = int((feature_stats or {}).get("pending") or 0)
@@ -197,12 +199,7 @@ def _emit_enrichment_done(loader: GraphLoader, total: int, enriched: int, exclud
             "Run `tldrgraph init` again after fixing model access.",
         ])
     else:
-        workflow_lines = [
-            f"{pending_workflows} feature workflow file(s) still need source-backed steps.",
-            "  1. Open .tldrgraph/features.yaml",
-            "  2. Complete each pending .tldrgraph/workflows/<feature_id>.yaml",
-            "  3. Run: tldrgraph init",
-        ] if pending_workflows else ["Feature workflow files are complete."]
+        workflow_lines = feature_workflow_status_lines(loader.root_dir, feature_stats)
         lines.extend([_embedding_summary(loader), "", *workflow_lines, "",
                       '  tldrgraph query "<feature in plain English>"',
                       '  tldrgraph trace "<Source>" "<Target>"',
@@ -387,11 +384,13 @@ def init_pipeline(
         if link_applied and not as_json:
             click.echo(f"🔗 Applied {len(link_applied['applied'])} LLM route link(s)")
 
-    feature_stats = generate_feature_workflow_files(path, loader.graph, agent_model=agent_model, use_agent=False)
+    feature_stats = generate_feature_workflow_files(path, loader.graph)
     if not as_json:
-        click.echo(f"🧭 Feature workflows: {feature_stats['generated']} generated, {feature_stats['pending']} pending across {feature_stats['features']} feature(s)")
         if feature_stats["pending"]:
-            click.echo("   Current agent must complete pending .tldrgraph/workflows/*.yaml files from source evidence.")
+            click.echo("🧭 Feature workflows: waiting for host-agent subagent generation")
+            click.echo("   Delegate .tldrgraph/feature_workflows_request.yaml to a source-reading subagent.")
+        else:
+            click.echo(f"🧭 Feature workflows: {feature_stats['generated']} generated feature(s)")
 
     generate_visualizer_html(path)
 

@@ -38,10 +38,10 @@ _LOOP = """One command does extraction, saved feature workflows, and embeddings:
 tldrgraph init
 ```
 
-`init` does not use AI for architecture layer design, all-symbol enrichment,
-route-link inference, or BPMN workflow generation by default. It only attempts
-source-backed saved Feature Workflow Explorer files and writes pending states
-when a full workflow cannot be generated.
+`init` never launches AI for Feature Workflow Explorer and never invents
+heuristic features. It writes `.tldrgraph/feature_workflows_request.yaml`; the
+host coding agent must delegate that request to a source-reading subagent and
+rerun init after `.tldrgraph/feature_workflows_response.yaml` is written.
 
 `--agent-cli` is now explicit opt-in for architecture layer design and enrichment.
 Never add `--limit`, `--agent-cli`, `--llm-links`, or `--embeddings off` unless
@@ -69,6 +69,9 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
   match with 100% confidence; fallback vector search handles related terms with a 0.35 score floor.
 - **Write the response to a different file than the request.** The request is regenerated
   on every run.
+- **Complete `needs_feature_workflows` through a subagent.** Delegate the entire
+  `.tldrgraph/feature_workflows_request.yaml` file to a source-reading subagent,
+  have it write both features and workflows to the named response file, then rerun init.
 - **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
   open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
   with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
@@ -124,6 +127,8 @@ the files.
 | `.tldrgraph/enrichment_response.json` | **you** | `apply-enrichment` |
 | `.tldrgraph/enrichment_approval.json` | `init --yes` | continuation runs |
 | `.tldrgraph/pending_enrichment.json` | *(legacy)* | `apply-enrichment`, only if no response file exists |
+| `.tldrgraph/feature_workflows_request.yaml` | `init` | host coding agent and subagent |
+| `.tldrgraph/feature_workflows_response.yaml` | source-reading subagent | `init` |
 
 ## Response schema
 

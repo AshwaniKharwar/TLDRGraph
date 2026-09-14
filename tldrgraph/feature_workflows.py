@@ -9,14 +9,15 @@ from typing import Any, Dict, List, Tuple
 
 import networkx as nx
 
-from .cli_enrichment import read_payload, write_payload
+from .feature_workflow_bridges import endpoint_aware_walk, endpoint_context
+from .feature_workflow_validation import validate_workflow
 from .layers import layer_id_of
 
 FEATURES_FILENAME = "features.yaml"
 WORKFLOWS_DIRNAME = "workflows"
 FEATURE_SCHEMA = "codechakra/features@1"
 WORKFLOW_SCHEMA = "codechakra/feature-workflow@1"
-WORKFLOW_GENERATOR = "feature-workflow-agent-owned@3"
+WORKFLOW_GENERATOR = "feature-workflow-subagent@1"
 BANNED_WORKFLOW_RELATIONS = {"llm_http_route_link", "http_route_link", "calls_endpoint"}
 SKIP_DIRS = (".tldrgraph/", "tests/", "test/", "spec/", "__tests__/", "node_modules/", "dist/", "build/", "vendor/", "migrations/")
 
@@ -89,11 +90,6 @@ def _evidence(node_id: str, node: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _slug(text: str, fallback: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
-    return (slug or fallback)[:64]
-
-
 def _humanize(text: str) -> str:
     text = re.sub(r"\([^)]*\)", "", str(text or ""))
     text = text.split(".")[-1]
@@ -144,66 +140,9 @@ def _candidate_roots(graph: nx.DiGraph, limit: int = 12) -> List[Tuple[str, str]
     return [(node_id, audience) for _, node_id, audience in scored[:limit]]
 
 
-def _walk_feature_steps(graph: nx.DiGraph, root_id: str, max_steps: int = 12) -> List[str]:
-    chain = [root_id]
-    seen = {root_id}
-    current = root_id
-    while len(chain) < max_steps:
-        ranked: List[Tuple[int, str]] = []
-        current_layer = layer_id_of(graph.nodes.get(current, {}))
-        for _, target, data in graph.out_edges(current, data=True):
-            target = str(target)
-            if target in seen or not _is_candidate_node(graph.nodes.get(target, {})):
-                continue
-            relation = data.get("relation") or "calls"
-            if relation in BANNED_WORKFLOW_RELATIONS:
-                continue
-            if relation in {"contains", "rationale_for", "imports", "imports_from"}:
-                continue
-            node = graph.nodes[target]
-            score = graph.out_degree(target) + 2
-            if layer_id_of(node) != current_layer:
-                score += 10
-            if node.get("file") != graph.nodes[current].get("file"):
-                score += 4
-            ranked.append((score, target))
-        if not ranked:
-            break
-        ranked.sort(key=lambda item: (-item[0], item[1]))
-        current = ranked[0][1]
-        chain.append(current)
-        seen.add(current)
-    return chain
-
-
-def _fallback_features(graph: nx.DiGraph, current_hash: str) -> Dict[str, Any]:
-    features: List[Dict[str, Any]] = []
-    used_ids = set()
-    for root_id, audience in _candidate_roots(graph):
-        node = graph.nodes[root_id]
-        base_id = _slug(str(node.get("label") or root_id), f"feature_{len(features) + 1}")
-        feature_id = base_id
-        counter = 2
-        while feature_id in used_ids:
-            feature_id = f"{base_id}_{counter}"
-            counter += 1
-        used_ids.add(feature_id)
-        title = _humanize(node.get("display_label") or node.get("label") or root_id)
-        features.append({
-            "id": feature_id,
-            "title": title,
-            "audience": audience,
-            "summary": _node_summary(node),
-            "status": "pending",
-            "workflow_path": relative_workflow_path(feature_id),
-            "evidence": [_evidence(root_id, node)],
-        })
-    return {"schema": FEATURE_SCHEMA, "graph_hash": current_hash, "features": features}
-
-
 def _evidence_node(graph: nx.DiGraph, node_id: str) -> Dict[str, Any]:
     node = graph.nodes[node_id]
-    return {
+    record = {
         "evidence": _evidence(node_id, node),
         "label": node.get("label"),
         "intent": node.get("intent"),
@@ -225,102 +164,45 @@ def _evidence_node(graph: nx.DiGraph, node_id: str) -> Dict[str, Any]:
             )
         ][:24],
     }
+    context = endpoint_context(graph, node_id)
+    if context:
+        record["endpoint_context"] = context
+    return record
 
 
 def _workflow_evidence(graph: nx.DiGraph, feature: Dict[str, Any]) -> List[Dict[str, Any]]:
     root_id = str((feature.get("evidence") or [{}])[0].get("node_id") or "")
-    return [_evidence_node(graph, node_id) for node_id in _walk_feature_steps(graph, root_id) if node_id in graph]
-
-
-def _pending_workflow(feature: Dict[str, Any], graph: nx.DiGraph, current_hash: str, reason: str) -> Dict[str, Any]:
-    return {
-        "schema": WORKFLOW_SCHEMA,
-        "graph_hash": current_hash,
-        "generator": WORKFLOW_GENERATOR,
-        "feature_id": feature.get("id"),
-        "title": feature.get("title") or _humanize(feature.get("id")),
-        "summary": feature.get("summary") or reason,
-        "status": "pending",
-        "pending_reason": reason,
-        "evidence": feature.get("evidence") or [],
-        "evidence_nodes": _workflow_evidence(graph, feature),
-        "instructions": [
-            "The same coding agent running `tldrgraph init` must complete this file.",
-            "Open every source file referenced in evidence_nodes before writing steps.",
-            "Start at the user's button/menu/form action when present.",
-            "Continue through request, backend work, response payload, client handling, and final UI update when proven.",
-            "Use only source-backed evidence; leave status pending if a hop is not proven.",
-        ],
-        "required_step_shape": {"number": 1, "title": "...", "text": "...", "evidence": ["copy evidence objects from evidence_nodes"]},
-        "steps": [],
-    }
-
-
-def validate_workflow(workflow: Dict[str, Any]) -> bool:
-    if workflow.get("schema") != WORKFLOW_SCHEMA:
-        return False
-    steps = workflow.get("steps")
-    if not isinstance(steps, list) or not steps:
-        return workflow.get("status") == "pending"
-    for step in steps:
-        if not isinstance(step, dict):
-            return False
-        evidence = step.get("evidence")
-        if not isinstance(evidence, list) or not evidence:
-            return False
-        for ev in evidence:
-            if not isinstance(ev, dict):
-                return False
-            if not ev.get("node_id") or not ev.get("file") or not ev.get("symbol"):
-                return False
-    return True
+    return [_evidence_node(graph, node_id) for node_id in endpoint_aware_walk(graph, root_id) if node_id in graph]
 
 
 def generate_feature_workflow_files(
     root: str,
     graph: nx.DiGraph,
-    agent_model: Any = None,
-    use_agent: bool = True,
 ) -> Dict[str, Any]:
-    """Writes features.yaml and all stale/missing workflow files."""
+    """Apply a host-subagent response or request one without heuristic output."""
+    from .feature_workflow_handoff import (
+        apply_feature_workflow_response,
+        clear_feature_workflow_request,
+        current_manifest,
+        write_feature_workflow_request,
+    )
+
     root = os.path.abspath(root)
     current_hash = graph_hash(graph)
-    manifest = _fallback_features(graph, current_hash)
-    reason = "Feature workflow is pending for the current coding agent to complete from source evidence."
-
-    os.makedirs(workflows_dir(root), exist_ok=True)
-    generated = 0
-    pending = 0
-    updated_features = []
-    for feature in manifest.get("features", []):
-        if not isinstance(feature, dict) or not feature.get("id"):
-            continue
-        feature_id = _slug(str(feature["id"]), f"feature_{len(updated_features) + 1}")
-        feature = {**feature, "id": feature_id, "workflow_path": relative_workflow_path(feature_id)}
-        existing = read_payload(workflow_path(root, feature_id))
-        stale = (
-            not isinstance(existing, dict)
-            or existing.get("graph_hash") != current_hash
-            or existing.get("generator") != WORKFLOW_GENERATOR
-        )
-        workflow = existing if isinstance(existing, dict) and not stale else None
-        if workflow is None:
-            workflow = _pending_workflow(feature, graph, current_hash, reason)
-        if not validate_workflow(workflow):
-            workflow = _pending_workflow(feature, graph, current_hash, "Saved workflow is invalid or incomplete.")
-        write_payload(workflow_path(root, feature_id), workflow)
-        status = str(workflow.get("status") or "pending")
-        feature["status"] = status
-        if status == "generated":
-            generated += 1
-        else:
-            pending += 1
-        updated_features.append(feature)
-
-    manifest = {"schema": FEATURE_SCHEMA, "graph_hash": current_hash, "features": updated_features}
-    write_payload(features_path(root), manifest)
-    return {"features": len(updated_features), "generated": generated, "pending": pending,
-            "graph_hash": current_hash, "agent_reason": ""}
+    manifest, error = apply_feature_workflow_response(root, graph, current_hash)
+    if error:
+        request_path = write_feature_workflow_request(root, graph, current_hash, error)
+        return {"features": 0, "generated": 0, "pending": 1,
+                "graph_hash": current_hash, "agent_reason": error, "request_path": request_path}
+    manifest = manifest or current_manifest(root, current_hash)
+    if manifest is not None:
+        clear_feature_workflow_request(root)
+        count = len(manifest.get("features") or [])
+        return {"features": count, "generated": count, "pending": 0,
+                "graph_hash": current_hash, "agent_reason": "", "request_path": ""}
+    request_path = write_feature_workflow_request(root, graph, current_hash, error)
+    return {"features": 0, "generated": 0, "pending": 1,
+            "graph_hash": current_hash, "agent_reason": error, "request_path": request_path}
 
 
 def load_feature_manifest(root: str) -> Tuple[Optional[Dict[str, Any]], str]:

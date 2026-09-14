@@ -27,14 +27,20 @@ Those are read-only and never trigger enrichment.
 extraction, embeddings, and writes the file-backed Feature Workflow Explorer
 artifacts: `.tldrgraph/features.yaml` plus `.tldrgraph/workflows/<feature_id>.yaml`.
 
-Feature workflows are owned by the agent running `tldrgraph init`. If a workflow
-file is pending, open `.tldrgraph/features.yaml`, then complete each pending
-`.tldrgraph/workflows/<feature_id>.yaml` from its evidence. Workflow Explorer
+TLDRGraph never invents heuristic features or launches an AI process for feature
+generation. If `init` returns `needs_feature_workflows`, the agent running it must
+open `.tldrgraph/feature_workflows_request.yaml`, spawn a source-reading subagent,
+and have that subagent write `.tldrgraph/feature_workflows_response.yaml` with both
+features and complete workflows. Run `tldrgraph init` again to validate and apply
+the response; do not edit final feature/workflow files directly. Workflow Explorer
 reads only saved YAML, never curated blueprints, route-link workflow discovery,
 BPMN-derived generation, `discover_workflows()`, `llm_http_route_link`,
 `http_route_link`, or `calls_endpoint`. When writing feature workflows, start at
 the user's button/menu/form action and continue through client request, backend
 work, response payload, client handling, and final UI update. Do not skip proven steps.
+Do not set `status: generated` unless the saved steps cover the end-to-end flow
+for the proven feature boundary, and do not use route-link relations as workflow
+evidence.
 Full workflow: `.claude/commands/tldrgraph-init.md` (identical copies live in every
 other agent directory). Schema: `.tldrgraph/AGENT_CONTRACT.md`.
 

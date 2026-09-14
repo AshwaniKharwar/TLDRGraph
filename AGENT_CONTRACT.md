@@ -2,11 +2,10 @@
 
 **Audience: the coding agent with this repository open** (Codex, Claude Code, Cursor, Antigravity).
 
-TLDRGraph builds an architectural graph from the graphify AST export. By default,
-`tldrgraph init` does not ask AI to design architecture layers, enrich every
-symbol, infer route links, or generate BPMN workflows. The only default AI-shaped
-artifact is the saved Feature Workflow Explorer YAML, and it must stay backed by
-real source evidence.
+TLDRGraph builds an architectural graph from the graphify AST export. It never
+launches an AI process or invents heuristic features for Feature Workflow Explorer.
+The coding agent running `tldrgraph init` owns delegating feature generation to a
+source-reading subagent through the request/response handshake below.
 
 ---
 
@@ -28,6 +27,7 @@ independent and does not require `--agent-cli`.
 | `needs_confirmation` | Only belongs to explicit `--agent-cli` enrichment. Ask before continuing. |
 | `needs_enrichment` | Only process if the user explicitly asked for full graph enrichment. |
 | `needs_embeddings` | Enrichment finished but the required dense model/index could not be built. Fix model access and rerun init. |
+| `needs_feature_workflows` | Delegate `.tldrgraph/feature_workflows_request.yaml` to a source-reading subagent, write the response, and rerun init. |
 | `done` | Nothing left. Use `query` / `trace` / `layers`. |
 
 `--json` gives you the same thing machine-readably. The sections below document the file
@@ -66,8 +66,10 @@ Request and response are **separate files**. Never write your answer back into
 
 | File | Written by | Read by |
 | --- | --- | --- |
-| `.tldrgraph/features.yaml` | `tldrgraph init` | Workflow Explorer |
-| `.tldrgraph/workflows/<feature_id>.yaml` | `tldrgraph init` | Workflow Explorer |
+| `.tldrgraph/feature_workflows_request.yaml` | `tldrgraph init` | host coding agent and its subagent |
+| `.tldrgraph/feature_workflows_response.yaml` | source-reading subagent | `tldrgraph init` |
+| `.tldrgraph/features.yaml` | `tldrgraph init` after validation | Workflow Explorer |
+| `.tldrgraph/workflows/<feature_id>.yaml` | `tldrgraph init` after validation | Workflow Explorer |
 
 The Workflow Explorer tab is intentionally file-driven. It must read only
 `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`; if those
@@ -93,6 +95,13 @@ job, external system, response payload creation, client response parsing, state
 update, navigation/toast/rendered result, and visible success or error handling.
 Do not stop at only the frontend or only the backend when the source proves the
 handoff, and do not collapse multiple proven source hops into one vague step.
+
+When `init` returns `needs_feature_workflows`, open the request and spawn a
+source-reading subagent. Delegate the entire request: the subagent must generate
+both the feature list and every complete workflow in
+`.tldrgraph/feature_workflows_response.yaml`. Run `tldrgraph init` again so
+TLDRGraph can validate and atomically apply the response. Never edit the final
+manifest or workflow files directly, and never substitute heuristic features.
 
 ---
 

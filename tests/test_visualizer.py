@@ -435,7 +435,7 @@ def test_frontend_component_beats_api_wrapper_as_feature_flow_root():
 def test_saved_feature_generation_ignores_route_link_relations():
     import networkx as nx
     import yaml
-    from tldrgraph.feature_workflows import generate_feature_workflow_files, load_saved_feature_workflows, workflow_path
+    from tldrgraph.feature_workflows import generate_feature_workflow_files
 
     graph = nx.DiGraph()
     nodes = {
@@ -455,11 +455,9 @@ def test_saved_feature_generation_ignores_route_link_relations():
     import tempfile
 
     with tempfile.TemporaryDirectory() as root:
-        generate_feature_workflow_files(root, graph, use_agent=True)
-        raw = yaml.safe_load(open(workflow_path(root, "orderspage"), encoding="utf-8"))
-        payload = load_saved_feature_workflows(root)
+        stats = generate_feature_workflow_files(root, graph)
+        request = yaml.safe_load(open(stats["request_path"], encoding="utf-8"))
 
-    assert payload["workflows"]
-    assert payload["workflows"][0]["status"] == "pending"
-    outgoing = raw["evidence_nodes"][0]["outgoing"]
+    page = next(item for item in request["candidates"] if item["root"]["node_id"] == "page")
+    outgoing = page["evidence_nodes"][0]["outgoing"]
     assert all(item["target"]["node_id"] != "handler" for item in outgoing)
