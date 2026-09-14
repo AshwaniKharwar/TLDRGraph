@@ -57,12 +57,17 @@ def fake_agent(name: str = "fake") -> agent_runner.AgentCLI:
 def complete_pending_workflows(root: Path) -> None:
     state = root / ".tldrgraph"
     request = yaml.safe_load((state / "feature_workflows_request.yaml").read_text(encoding="utf-8"))
-    evidence = request["candidates"][0]["root"]
+    evidence = request["investigation_leads"][0]["root"]
     response = {
-        "schema": "codechakra/feature-workflows-response@1",
+        "schema": "codechakra/feature-workflows-response@2",
         "graph_hash": request["graph_hash"],
+        "areas": [{
+            "id": "developer_tools", "title": "Developer tools",
+            "summary": "Commands used by developers.", "perspective": "technical", "order": 0,
+        }],
         "features": [{
             "id": "run_sample_cli",
+            "area_id": "developer_tools",
             "title": "Run Sample CLI",
             "audience": "developer",
             "summary": "Run the sample command through its engine.",

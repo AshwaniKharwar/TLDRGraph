@@ -15,9 +15,11 @@ from .layers import layer_id_of
 
 FEATURES_FILENAME = "features.yaml"
 WORKFLOWS_DIRNAME = "workflows"
-FEATURE_SCHEMA = "codechakra/features@1"
-WORKFLOW_SCHEMA = "codechakra/feature-workflow@1"
-WORKFLOW_GENERATOR = "feature-workflow-subagent@1"
+FEATURE_SCHEMA = "codechakra/features@2"
+LEGACY_FEATURE_SCHEMA = "codechakra/features@1"
+WORKFLOW_SCHEMA = "codechakra/feature-workflow@2"
+LEGACY_WORKFLOW_SCHEMA = "codechakra/feature-workflow@1"
+WORKFLOW_GENERATOR = "feature-workflow-subagent@2"
 BANNED_WORKFLOW_RELATIONS = {"llm_http_route_link", "http_route_link", "calls_endpoint"}
 SKIP_DIRS = (".tldrgraph/", "tests/", "test/", "spec/", "__tests__/", "node_modules/", "dist/", "build/", "vendor/", "migrations/")
 
@@ -197,8 +199,12 @@ def generate_feature_workflow_files(
     manifest = manifest or current_manifest(root, current_hash)
     if manifest is not None:
         clear_feature_workflow_request(root)
-        count = len(manifest.get("features") or [])
-        return {"features": count, "generated": count, "pending": 0,
+        features = manifest.get("features") or []
+        generated = sum(1 for feature in features if feature.get("status") == "generated")
+        partial = sum(1 for feature in features if feature.get("status") == "partial")
+        catalog_pending = sum(1 for feature in features if feature.get("status") == "pending")
+        return {"features": len(features), "generated": generated, "partial": partial,
+                "workflow_pending": catalog_pending, "pending": 0,
                 "graph_hash": current_hash, "agent_reason": "", "request_path": ""}
     request_path = write_feature_workflow_request(root, graph, current_hash, error)
     return {"features": 0, "generated": 0, "pending": 1,

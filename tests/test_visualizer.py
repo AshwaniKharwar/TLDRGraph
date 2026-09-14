@@ -177,8 +177,13 @@ def test_workflows_payload_structure(mini_repo):
     write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
         "schema": FEATURE_SCHEMA,
         "graph_hash": "test",
+        "areas": [{
+            "id": "case_management", "title": "Case management",
+            "summary": "Submit and manage cases.", "perspective": "product", "order": 0,
+        }],
         "features": [{
             "id": "submit_case",
+            "area_id": "case_management",
             "title": "Submit Case",
             "audience": "user",
             "summary": "Send a case through the project.",
@@ -229,6 +234,44 @@ def test_workflows_payload_structure(mini_repo):
             assert "file" in s
             assert "layer" in s
             assert "node_id" in s
+
+
+def test_feature_process_uses_human_titles_and_partial_end_marker(mini_repo):
+    from tldrgraph.cli_enrichment import write_payload
+    from tldrgraph.feature_workflows import FEATURE_SCHEMA, WORKFLOW_SCHEMA, load_saved_feature_workflows
+
+    evidence = {"node_id": mini_repo.nid("ui_page"), "symbol": mini_repo.label("ui_page"),
+                "file": mini_repo.source_file("ui_page"), "line": 1}
+    write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
+        "schema": FEATURE_SCHEMA, "graph_hash": "test", "generator": "feature-catalog-subagent@2",
+        "areas": [{"id": "case_management", "title": "Case management",
+                   "summary": "Manage cases.", "perspective": "product", "order": 0}],
+        "features": [{"id": "submit_case", "area_id": "case_management", "title": "Submit a case",
+                      "audience": "user", "summary": "Submit a case for review.", "status": "partial",
+                      "workflow_path": ".tldrgraph/workflows/submit_case.yaml", "evidence": [evidence]}],
+    })
+    write_payload(str(mini_repo.tldrgraph_dir / "workflows" / "submit_case.yaml"), {
+        "schema": WORKFLOW_SCHEMA, "graph_hash": "test", "generator": "feature-workflow-subagent@2",
+        "feature_id": "submit_case", "title": "Submit a case", "summary": "Submit a case.",
+        "status": "partial", "missing_coverage": "The server response is not proven.",
+        "evidence": [evidence], "steps": [{"number": 1, "phase": "user_action",
+            "title": "Choose Submit case", "text": "The user chooses the submit action.",
+            "evidence": [evidence]}],
+    })
+
+    payload = load_saved_feature_workflows(str(mini_repo.root))
+    workflow = payload["workflows"][0]
+    task = workflow["process"]["elements"][1]
+
+    assert workflow["area_title"] == "Case management"
+    assert workflow["perspective"] == "product"
+    assert task["label"] == "Choose Submit case"
+    assert task["detail"] == "The user chooses the submit action."
+    assert task["source_symbol"] == mini_repo.label("ui_page")
+    assert task["phase"] == "user_action"
+    assert any(element.get("minor") for element in workflow["process"]["elements"])
+    assert workflow["process"]["elements"][-1]["kind"] == "partial"
+    assert workflow["process"]["elements"][-1]["label"] == "Known flow ends here"
 
 
 def test_workflow_explorer_does_not_call_discovery_or_bpmn(monkeypatch, mini_repo):
@@ -458,6 +501,6 @@ def test_saved_feature_generation_ignores_route_link_relations():
         stats = generate_feature_workflow_files(root, graph)
         request = yaml.safe_load(open(stats["request_path"], encoding="utf-8"))
 
-    page = next(item for item in request["candidates"] if item["root"]["node_id"] == "page")
+    page = next(item for item in request["investigation_leads"] if item["root"]["node_id"] == "page")
     outgoing = page["evidence_nodes"][0]["outgoing"]
     assert all(item["target"]["node_id"] != "handler" for item in outgoing)

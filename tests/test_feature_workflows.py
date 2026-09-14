@@ -31,6 +31,7 @@ def _write_valid_response(mini_repo, graph, **feature_overrides):
 
     feature = {
         "id": "submit_case",
+        "area_id": "case_management",
         "title": "Submit Case",
         "audience": "user",
         "summary": "Submit and persist a case.",
@@ -54,6 +55,13 @@ def _write_valid_response(mini_repo, graph, **feature_overrides):
     return write_payload(str(mini_repo.tldrgraph_dir / RESPONSE_FILENAME), {
         "schema": RESPONSE_SCHEMA,
         "graph_hash": graph_hash(graph),
+        "areas": [{
+            "id": "case_management",
+            "title": "Case management",
+            "summary": "Submit and manage pension cases.",
+            "perspective": "product",
+            "order": 0,
+        }],
         "features": [feature],
     })
 
@@ -72,9 +80,11 @@ def test_missing_feature_artifacts_create_host_subagent_request(loader, mini_rep
     request = yaml.safe_load(open(stats["request_path"], encoding="utf-8"))
     assert request["schema"] == REQUEST_SCHEMA
     assert request["graph_hash"] == stats["graph_hash"]
-    assert request["candidates"]
-    assert request["candidates"][0]["root"]["node_id"]
-    assert request["candidates"][0]["evidence_nodes"]
+    assert request["investigation_leads"]
+    assert request["investigation_leads"][0]["root"]["node_id"]
+    assert request["investigation_leads"][0]["evidence_nodes"]
+    assert "not the feature list" in "\n".join(request["instructions"])
+    assert request["repository_discovery"]["graph_file"] == ".tldrgraph/graph.json"
     assert "delegate this entire request" in "\n".join(request["instructions"])
 
 
@@ -87,6 +97,126 @@ def test_feature_workflow_validation_rejects_steps_without_evidence():
         "status": "generated",
         "steps": [{"number": 1, "title": "Guess", "text": "No backing source."}],
     })
+
+
+def test_partial_and_pending_workflow_validation_requires_honest_coverage(mini_repo):
+    from tldrgraph.feature_workflows import WORKFLOW_SCHEMA, validate_workflow
+
+    partial_step = _step(1, "frontend", "ui_page", mini_repo)
+    assert validate_workflow({
+        "schema": WORKFLOW_SCHEMA,
+        "status": "partial",
+        "missing_coverage": "The backend handoff is not present in the graph.",
+        "steps": [partial_step],
+    })
+    assert not validate_workflow({
+        "schema": WORKFLOW_SCHEMA, "status": "partial", "steps": [partial_step],
+    })
+    assert validate_workflow({
+        "schema": WORKFLOW_SCHEMA,
+        "status": "pending",
+        "missing_coverage": "No reliable sequence can be drawn.",
+        "steps": [],
+    })
+    assert not validate_workflow({
+        "schema": WORKFLOW_SCHEMA,
+        "status": "pending",
+        "missing_coverage": "A sequence is not proven.",
+        "steps": [partial_step],
+    })
+
+
+def test_v2_catalog_normalizes_areas_and_incomplete_capabilities(loader, mini_repo):
+    from tldrgraph.feature_workflow_handoff import RESPONSE_SCHEMA, normalize_feature_workflow_response
+    from tldrgraph.feature_workflows import graph_hash
+
+    graph = loader.load_or_extract(enrich_llm=False)
+    evidence = _step(1, "frontend", "ui_page", mini_repo)["evidence"]
+    payload = {
+        "schema": RESPONSE_SCHEMA,
+        "graph_hash": graph_hash(graph),
+        "areas": [
+            {"id": "operations", "title": "Operations", "summary": "Internal operation.",
+             "perspective": "technical", "order": 0},
+            {"id": "case_management", "title": "Case management", "summary": "Manage cases.",
+             "perspective": "product", "order": 0},
+        ],
+        "features": [
+            {"id": "review_case", "area_id": "case_management", "title": "Review a case",
+             "audience": "admin", "summary": "Review an existing case.", "evidence": evidence,
+             "workflow": {"status": "partial", "summary": "Open the review page.",
+                          "missing_coverage": "The save response is not proven.",
+                          "steps": [_step(1, "frontend", "ui_page", mini_repo)]}},
+            {"id": "operate_pipeline", "area_id": "operations", "title": "Operate the pipeline",
+             "audience": "operator", "summary": "Operate the internal pipeline.", "evidence": evidence,
+             "workflow": {"status": "pending", "summary": "Pipeline operation.",
+                          "missing_coverage": "No reliable sequence can be drawn.", "steps": []}},
+        ],
+    }
+
+    manifest, workflows = normalize_feature_workflow_response(graph, graph_hash(graph), payload)
+
+    assert [area["id"] for area in manifest["areas"]] == ["case_management", "operations"]
+    assert [feature["status"] for feature in manifest["features"]] == ["partial", "pending"]
+    assert workflows["review_case"]["missing_coverage"]
+    assert workflows["operate_pipeline"]["steps"] == []
+
+
+def test_v2_catalog_rejects_unknown_feature_area(loader, mini_repo):
+    from tldrgraph.feature_workflow_handoff import RESPONSE_SCHEMA, normalize_feature_workflow_response
+    from tldrgraph.feature_workflows import graph_hash
+
+    graph = loader.load_or_extract(enrich_llm=False)
+    payload = {
+        "schema": RESPONSE_SCHEMA, "graph_hash": graph_hash(graph),
+        "areas": [{"id": "known", "title": "Known", "summary": "Known area.",
+                   "perspective": "product", "order": 0}],
+        "features": [{"id": "orphan", "area_id": "missing", "title": "Orphan feature",
+                      "audience": "user", "summary": "Has no valid area.",
+                      "evidence": _step(1, "frontend", "ui_page", mini_repo)["evidence"],
+                      "workflow": {"status": "pending", "summary": "Unknown.",
+                                   "missing_coverage": "No flow.", "steps": []}}],
+    }
+
+    with pytest.raises(ValueError, match="unknown area"):
+        normalize_feature_workflow_response(graph, graph_hash(graph), payload)
+
+
+def test_v1_manifest_loads_in_legacy_area(mini_repo):
+    from tldrgraph.cli_enrichment import write_payload
+    from tldrgraph.feature_workflows import LEGACY_FEATURE_SCHEMA, load_saved_feature_workflows
+
+    write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
+        "schema": LEGACY_FEATURE_SCHEMA, "graph_hash": "old",
+        "features": [{"id": "old_service", "title": "Old Service", "audience": "developer",
+                      "summary": "A legacy symbol-oriented feature.", "status": "pending",
+                      "workflow_path": ".tldrgraph/workflows/old_service.yaml", "evidence": []}],
+    })
+
+    payload = load_saved_feature_workflows(str(mini_repo.root))
+
+    assert payload["state"] == "ready"
+    assert payload["legacy"] is True
+    assert payload["areas"][0]["id"] == "legacy_features"
+    assert payload["workflows"][0]["area_title"] == "Legacy features"
+
+
+def test_v1_manifest_is_not_current_for_generation(loader, mini_repo):
+    from tldrgraph.cli_enrichment import write_payload
+    from tldrgraph.feature_workflow_handoff import REQUEST_SCHEMA
+    from tldrgraph.feature_workflows import LEGACY_FEATURE_SCHEMA, generate_feature_workflow_files, graph_hash
+
+    graph = loader.load_or_extract(enrich_llm=False)
+    write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
+        "schema": LEGACY_FEATURE_SCHEMA, "graph_hash": graph_hash(graph),
+        "features": [{"id": "old", "title": "Old", "status": "generated"}],
+    })
+
+    stats = generate_feature_workflow_files(str(mini_repo.root), graph)
+    request = yaml.safe_load(open(stats["request_path"], encoding="utf-8"))
+
+    assert stats["pending"] == 1
+    assert request["schema"] == REQUEST_SCHEMA
 
 
 def test_user_workflow_validation_rejects_shallow_generated_steps(mini_repo):
@@ -229,7 +359,7 @@ def test_feature_request_evidence_crosses_endpoint_context(tmp_path):
 
     stats = generate_feature_workflow_files(str(tmp_path), graph)
     request = yaml.safe_load(open(stats["request_path"], encoding="utf-8"))
-    candidate = next(item for item in request["candidates"] if item["root"]["node_id"] == "page")
+    candidate = next(item for item in request["investigation_leads"] if item["root"]["node_id"] == "page")
     node_ids = [node["evidence"]["node_id"] for node in candidate["evidence_nodes"]]
 
     assert node_ids[:6] == ["page", "api", "endpoint", "handler", "service", "checkpoint"]
@@ -264,8 +394,13 @@ def test_missing_workflow_file_becomes_pending_state(mini_repo):
     write_payload(str(mini_repo.tldrgraph_dir / "features.yaml"), {
         "schema": FEATURE_SCHEMA,
         "graph_hash": "test",
+        "areas": [{
+            "id": "operations", "title": "Operations", "summary": "Operational capabilities.",
+            "perspective": "technical", "order": 0,
+        }],
         "features": [{
             "id": "not_generated",
+            "area_id": "operations",
             "title": "Not Generated",
             "audience": "developer",
             "summary": "A feature without a workflow file.",

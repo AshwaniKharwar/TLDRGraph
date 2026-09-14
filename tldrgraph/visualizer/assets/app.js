@@ -2650,10 +2650,10 @@ function initWorkflowsExplorer() {
   const workflows = DATA.workflows || [];
   const badgeEl = document.getElementById('flows-badge-count');
   const readyCount = workflows.filter(w => (w.status || 'generated') === 'generated').length;
-  if (badgeEl) badgeEl.textContent = readyCount;
+  if (badgeEl) badgeEl.textContent = workflows.length ? `${readyCount}/${workflows.length}` : '0';
 
   const countEl = document.getElementById('flows-list-count');
-  if (countEl) countEl.textContent = `Workflows (${readyCount}/${workflows.length})`;
+  if (countEl) countEl.textContent = `Features (${readyCount}/${workflows.length} complete)`;
 
   // Setup search input
   const searchInput = document.getElementById('flows-search-input');
@@ -2702,72 +2702,6 @@ function initWorkflowsExplorer() {
   if (tabBtnFlows) tabBtnFlows.addEventListener('click', () => switchTab('flows'));
 
   renderWorkflowsList();
-}
-
-function renderWorkflowsList() {
-  const listEl = document.getElementById('flows-list');
-  if (!listEl) return;
-
-  const allWorkflows = DATA.workflows || [];
-  const workflows = (DATA.workflows || []).filter(w => {
-    if (!flowSearchQuery) return true;
-    const matchTitle = (w.title || '').toLowerCase().includes(flowSearchQuery);
-    const matchRoot = (w.root_node || '').toLowerCase().includes(flowSearchQuery);
-    const matchFile = (w.file || '').toLowerCase().includes(flowSearchQuery);
-    const matchSummary = (w.summary || '').toLowerCase().includes(flowSearchQuery);
-    const matchSteps = (w.steps || []).some(s => 
-      (s.symbol || '').toLowerCase().includes(flowSearchQuery) || 
-      (s.file || '').toLowerCase().includes(flowSearchQuery)
-    );
-    return matchTitle || matchRoot || matchFile || matchSummary || matchSteps;
-  });
-
-  const countEl = document.getElementById('flows-list-count');
-  const readyCount = workflows.filter(w => (w.status || 'generated') === 'generated').length;
-  if (countEl) countEl.textContent = `Workflows (${readyCount}/${workflows.length})`;
-
-  if (workflows.length === 0) {
-    const state = (DATA.workflow_state || {}).state || 'missing_features';
-    const messages = {
-      missing_features: 'No feature manifest found. Run tldrgraph init to create .tldrgraph/features.yaml.',
-      invalid_features: '.tldrgraph/features.yaml is invalid. Run tldrgraph init to refresh it.',
-      stale_features: 'Saved feature workflows are stale. Complete the host-agent subagent handoff from .tldrgraph/feature_workflows_request.yaml.',
-      empty_features: 'No features were saved for this project yet.',
-      ready: allWorkflows.length ? 'No matching saved workflows found.' : 'No saved feature workflows found.',
-    };
-    listEl.innerHTML = `<div style="padding: 16px; text-align: center; font-size: 12px; color: var(--text-dim);">${escapeHtml(messages[state] || messages.ready)}</div>`;
-    selectWorkflow(null);
-    return;
-  }
-
-  listEl.innerHTML = workflows.map(w => {
-    const isActive = w.id === activeWorkflowId;
-    const lColor = getLayerColor(w.layer_id);
-    const layerBadges = (w.layers_involved || []).slice(0, 3).map(lname => {
-      return `<span class="flow-layer-badge" style="background: rgba(255,255,255,0.08);">${escapeHtml(lname)}</span>`;
-    }).join('');
-
-    return `
-      <div class="flow-card ${isActive ? 'active' : ''}" data-flow-id="${w.id}">
-        <div class="flow-card-top">
-          <span class="flow-card-title">${escapeHtml(w.title)}</span>
-          <span class="flow-card-steps-count">${(w.status || 'generated') === 'generated' ? `${w.step_count} steps` : 'pending'}</span>
-        </div>
-        <div class="flow-card-meta">
-          <span class="flow-layer-badge" style="background: ${lColor};">${escapeHtml(w.category || w.layer || 'Feature')}</span>
-        </div>
-        <div class="flow-card-summary">${escapeHtml(w.summary || '')}</div>
-        <div class="flow-card-layers">${(w.status || 'generated') === 'generated' ? layerBadges : `<span class="flow-layer-badge" style="background: rgba(251,191,36,0.18); color:#fde68a;">${escapeHtml(w.pending_reason || 'Workflow file pending')}</span>`}</div>
-      </div>
-    `;
-  }).join('');
-
-  listEl.querySelectorAll('.flow-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const flowId = card.getAttribute('data-flow-id');
-      selectWorkflow(flowId);
-    });
-  });
 }
 
 let flowCanvas = null;
@@ -3025,7 +2959,7 @@ let flowRowWidth = 0;
 function shapeSize(el) {
   if (el.kind === 'step') return { w: TASK_W + 44, h: TASK_H };
   if (el.kind === 'gateway') return { w: GATE_SIZE, h: GATE_SIZE };
-  if (el.kind === 'start' || el.kind === 'end' || el.kind === 'handoff' || el.kind === 'error') {
+  if (el.kind === 'start' || el.kind === 'end' || el.kind === 'partial' || el.kind === 'handoff' || el.kind === 'error') {
     return { w: EVENT_SIZE, h: EVENT_SIZE };
   }
   return { w: TASK_W, h: TASK_H };
@@ -3193,7 +3127,8 @@ function buildWorkflowLayout(w) {
     // the decisions belong underneath.
     const head = group.head;
     const stepMeta = (w.steps || [])[group.step - 1] || {};
-    const bare = head.kind === 'start' || (head.kind === 'end' && group.members.length === 1);
+    const bare = head.kind === 'start' ||
+      ((head.kind === 'end' || head.kind === 'partial') && group.members.length === 1);
     const lineNode = bare ? head : {
       ...head,
       id: 'step__' + group.step,
@@ -3300,14 +3235,19 @@ function showFlowTooltip(node, mouseX, mouseY) {
   const source = (node.node_id && typeof nodesById !== 'undefined') ? nodesById[node.node_id] : null;
   const layer = layerById[(source || {}).layer_id] || FALLBACK_COLOR;
   const where = node.file ? node.file + (node.line ? ':' + node.line : '') : '';
-  const code = node.detail && node.detail !== node.label ? node.detail : '';
+  const detail = node.detail && node.detail !== node.label ? node.detail : '';
+  const symbol = node.source_symbol || '';
 
   flowTooltipEl.innerHTML =
     '<div class="tooltip-header"><span style="color:' + layer.color + '">*</span>' +
     '<span>' + escapeHtml(node.label) + '</span></div>' +
     (where ? '<div class="tooltip-file">' + escapeHtml(where) + '</div>' : '') +
-    (code ? '<div style="font-size:11px; color:#cbd5e1; font-family:monospace;">' +
-      escapeHtml(code) + '</div>' : '') +
+    (detail ? '<div style="font-size:11px; color:#cbd5e1; line-height:1.45;">' +
+      escapeHtml(detail) + '</div>' : '') +
+    (node.phase ? '<div style="font-size:10px; color:' + (PHASE_COLORS[node.phase] || '#94a3b8') + '; text-transform:capitalize;">' +
+      escapeHtml(phaseLabel(node.phase)) + '</div>' : '') +
+    (symbol ? '<div style="font-size:10px; color:#94a3b8; font-family:monospace;">' +
+      escapeHtml(symbol) + '</div>' : '') +
     (node.external ? '<div style="font-size:11px; color:#c084fc;">Leaves the tool: ' +
       escapeHtml(node.external) + '</div>' : '');
 
@@ -3349,9 +3289,20 @@ const KIND_COLORS = {
   loop: { fill: '#141829', border: '#38bdf8' },
   start: { fill: '#0f2417', border: '#34d399' },
   end: { fill: '#241318', border: '#f87171' },
+  partial: { fill: '#2a2110', border: '#fbbf24' },
   handoff: { fill: '#161d2e', border: '#94a3b8' },
   error: { fill: '#2a1a12', border: '#fb923c' },
 };
+
+const PHASE_COLORS = {
+  user_action: '#38bdf8', frontend: '#818cf8', request: '#a78bfa',
+  backend: '#22c55e', persistence: '#f59e0b', external: '#c084fc',
+  response: '#14b8a6', ui_update: '#06b6d4',
+};
+
+function phaseLabel(phase) {
+  return String(phase || 'system').replaceAll('_', ' ');
+}
 
 // Who does the work, shown on the card itself now that there are no lanes.
 const ACTOR_MARKS = {
@@ -3396,10 +3347,14 @@ function drawRoundedTask(c, n, active, hovered) {
     hovered: hovered,
     emphasis: n.kind === 'step',
     dead: false,
-    metaText: '',
+    metaText: phaseLabel(n.phase),
     badge: n.kind === 'step' && n.step ? ('#' + n.step)
       : (n.kind === 'loop' ? '\u21bb' : (n.external ? n.external : null)),
   });
+  c.save();
+  c.fillStyle = PHASE_COLORS[n.phase] || '#64748b';
+  c.fillRect(n.x - n.w / 2 + 1, n.y - n.h / 2 + 1, n.w - 2, 4);
+  c.restore();
 }
 
 // Decisions and events keep their BPMN outline but wear the card's colours and
@@ -3678,7 +3633,13 @@ function selectWorkflow(flowId) {
   const emptyState = document.getElementById('flows-empty-state');
   const headerCard = document.getElementById('flow-header-card');
   if (!w) {
-    if (emptyState) emptyState.style.display = 'flex';
+    if (emptyState) {
+      emptyState.style.display = 'flex';
+      const heading = emptyState.querySelector('h3');
+      const copy = emptyState.querySelector('p');
+      if (heading) heading.textContent = 'Select a capability to explore';
+      if (copy) copy.textContent = 'Follow a source-backed feature from the initiating action to its visible result.';
+    }
     if (headerCard) headerCard.style.display = 'none';
     flowNodes = [];
     flowEdges = [];
@@ -3700,20 +3661,34 @@ function selectWorkflow(flowId) {
   if (titleEl) titleEl.textContent = w.title;
   if (badgeEl) {
     badgeEl.textContent = w.category || w.layer || 'Architecture';
-    badgeEl.style.background = getLayerColor(w.layer_id);
+    badgeEl.style.background = w.perspective === 'product' ? '#0369a1' : '#6d28d9';
   }
   if (summaryEl) summaryEl.textContent = w.summary;
-  if (stepsMetaEl) stepsMetaEl.textContent = (w.status || 'generated') === 'generated'
-    ? `${w.step_count} Saved Steps`
-    : 'Workflow Pending';
-  if (entryMetaEl) entryMetaEl.textContent = (w.status || 'generated') === 'generated'
-    ? `Starts with: ${w.root_node || w.title}`
-    : (w.pending_reason || 'The workflow file has not been generated yet.');
+  const status = w.status || 'generated';
+  if (stepsMetaEl) stepsMetaEl.textContent = status === 'generated'
+    ? `${w.step_count} Proven Steps`
+    : (status === 'partial' ? `${w.step_count} Known Steps · Partial` : 'Workflow Pending');
+  if (entryMetaEl) entryMetaEl.textContent = status === 'generated'
+    ? `Starts with: ${(w.steps[0] || {}).display_label || w.title}`
+    : (w.missing_coverage || w.pending_reason || 'The reliable sequence is not yet known.');
 
   if (layersMetaEl) {
-    layersMetaEl.innerHTML = (w.layers_involved || []).map(lname => {
-      return `<span class="flow-meta-pill" style="border-color: rgba(255,255,255,0.15);">${escapeHtml(lname)}</span>`;
-    }).join('');
+    layersMetaEl.innerHTML = `<span class="flow-meta-pill">${escapeHtml(w.audience || 'developer')}</span>` +
+      `<span class="flow-meta-pill">${escapeHtml(status)}</span>`;
+  }
+
+  if (status === 'pending') {
+    if (emptyState) {
+      emptyState.style.display = 'flex';
+      const heading = emptyState.querySelector('h3');
+      const copy = emptyState.querySelector('p');
+      if (heading) heading.textContent = 'Workflow evidence is pending';
+      if (copy) copy.textContent = w.missing_coverage || w.pending_reason || 'No reliable sequence can be drawn yet.';
+    }
+    flowNodes = [];
+    flowEdges = [];
+    requestFlowFrame();
+    return;
   }
 
   // Build Layout and Render on Workflow Canvas

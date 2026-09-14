@@ -43,9 +43,11 @@ def render_html(data: Dict[str, Any], layers_config: List[Dict[str, Any]]) -> st
     template = _read_asset("index.html")
     replacements = {
         "/*__STYLES__*/": _read_asset("app.css"),
+        "/*__WORKFLOW_CATALOG_STYLES__*/": _read_asset("workflow-catalog.css"),
         "/*__DATA_JSON__*/": _json_for_script(data),
         "/*__LAYERS_JSON__*/": _json_for_script(layers_config),
         "/*__SOURCEVIEW_JS__*/": _read_asset("sourceview.js"),
+        "/*__WORKFLOW_CATALOG_JS__*/": _read_asset("workflow-catalog.js"),
         "/*__APP_JS__*/": _read_asset("app.js"),
     }
     pattern = re.compile("|".join(re.escape(k) for k in replacements.keys()))

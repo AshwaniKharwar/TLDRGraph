@@ -383,6 +383,7 @@ def prepare_visualizer_data(root_dir: str) -> Dict[str, Any]:
         "modules": modules,
         "nodes": list(nodes_by_id.values()),
         "workflows": workflows,
+        "workflow_areas": workflow_payload.get("areas", []),
         "workflow_state": {k: v for k, v in workflow_payload.items() if k != "workflows"},
         "module_edges": module_edges,
         "child_edges": child_edges,

@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Set
 
 
-WORKFLOW_SCHEMA = "codechakra/feature-workflow@1"
+WORKFLOW_SCHEMA = "codechakra/feature-workflow@2"
+LEGACY_WORKFLOW_SCHEMA = "codechakra/feature-workflow@1"
 BANNED_WORKFLOW_RELATIONS = {"llm_http_route_link", "http_route_link", "calls_endpoint"}
 FRONTEND_MARKERS = ("frontend/", "/app/", "/pages/", "/components/")
 BACKEND_MARKERS = ("backend/", "/backend/", "server/", "/server/", "/routes/", "controller")
@@ -16,6 +17,10 @@ PHASE_ALIASES = {
     "database": "persistence",
     "result": "response",
 }
+ALLOWED_PHASES = {
+    "user_action", "frontend", "request", "backend", "persistence",
+    "external", "response", "ui_update",
+}
 SCAFFOLD_MARKERS = (
     "pending_reason",
     "instructions",
@@ -24,17 +29,22 @@ SCAFFOLD_MARKERS = (
 
 
 def validate_workflow(workflow: Dict[str, Any]) -> bool:
-    if workflow.get("schema") != WORKFLOW_SCHEMA:
+    if workflow.get("schema") not in {WORKFLOW_SCHEMA, LEGACY_WORKFLOW_SCHEMA}:
         return False
     steps = workflow.get("steps")
+    status = workflow.get("status")
+    if status not in {"generated", "partial", "pending"}:
+        return False
     if not isinstance(steps, list) or not steps:
-        return workflow.get("status") == "pending"
+        return status == "pending" and _non_empty(workflow.get("missing_coverage"))
+    if status == "pending":
+        return False
     if not _steps_have_required_shape(steps):
         return False
     if _uses_banned_relation(steps):
         return False
-    if workflow.get("status") != "generated":
-        return True
+    if status == "partial":
+        return _non_empty(workflow.get("missing_coverage"))
     return _validate_generated_workflow(workflow, steps)
 
 
@@ -71,12 +81,12 @@ def _validate_generated_workflow(workflow: Dict[str, Any], steps: List[Dict[str,
 
 
 def _steps_have_required_shape(steps: List[Dict[str, Any]]) -> bool:
-    for step in steps:
+    for expected_number, step in enumerate(steps, 1):
         if not isinstance(step, dict):
             return False
-        if not isinstance(step.get("number"), int):
+        if step.get("number") != expected_number:
             return False
-        if not _non_empty(step.get("phase")):
+        if _normalize_phase(step.get("phase")) not in ALLOWED_PHASES:
             return False
         if not _non_empty(step.get("title")) or not _non_empty(step.get("text")):
             return False

@@ -27,17 +27,24 @@ explicitly requests it.
 
 ## Feature Workflow Explorer artifacts
 
-An accepted subagent response writes `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`.
+An accepted subagent response writes the v2 capability catalog in `.tldrgraph/features.yaml`
+and flows in `.tldrgraph/workflows/<feature_id>.yaml`. The manifest groups concrete
+capabilities into inferred product or technical areas; ranked symbols in the request are
+investigation leads, not the feature list.
 Workflow Explorer reads only those files; missing or invalid workflows show pending states.
 Do not restore discovery through `discover_workflows()`, curated blueprints, route-link workflow discovery, route-link relations, or BPMN generation.
-Each plain-language step needs source evidence. Start at the button/menu/form action and continue through client request, backend work, response payload, client handling, and final UI update when proven.
+Define features as user, admin, developer, or operator outcomes, not code symbols. Good:
+"Natural-language project creation." Bad: "OpencodeService"; that service is evidence.
+Each short plain-language step needs source evidence. Start at the button/menu/form action and continue through client request, backend work, response payload, client handling, and final UI update when proven.
 Do not set `status: generated` unless the saved steps cover the end-to-end flow for the proven feature boundary.
+Use `partial` with `missing_coverage` for a proven fragment and `pending` when no reliable
+sequence can be drawn. List source-backed capabilities in either state without inventing steps.
 Do not use route-link relations as workflow evidence: `llm_http_route_link`, `http_route_link`, or `calls_endpoint`.
 When `init` reports `status: needs_feature_workflows`:
 
 1. Open `.tldrgraph/feature_workflows_request.yaml`.
 2. Spawn a source-reading subagent and delegate the entire request to it.
-3. Have the subagent inspect the referenced files and write both features and complete workflows to `.tldrgraph/feature_workflows_response.yaml`.
+3. Have the subagent inspect the whole repository and write areas, features, and generated/partial/pending workflows to `.tldrgraph/feature_workflows_response.yaml`.
 4. Do not edit `features.yaml` or `workflows/*.yaml` directly; TLDRGraph validates and applies the response.
 5. Run `tldrgraph init` again.
 

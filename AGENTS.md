@@ -30,14 +30,18 @@ artifacts: `.tldrgraph/features.yaml` plus `.tldrgraph/workflows/<feature_id>.ya
 TLDRGraph never invents heuristic features or launches an AI process for feature
 generation. If `init` returns `needs_feature_workflows`, the agent running it must
 open `.tldrgraph/feature_workflows_request.yaml`, spawn a source-reading subagent,
-and have that subagent write `.tldrgraph/feature_workflows_response.yaml` with both
-features and complete workflows. Run `tldrgraph init` again to validate and apply
+and have that subagent write `.tldrgraph/feature_workflows_response.yaml` with inferred
+product/technical areas and source-backed capabilities. Ranked symbols are investigation
+leads, not the feature list. Run `tldrgraph init` again to validate and apply
 the response; do not edit final feature/workflow files directly. Workflow Explorer
 reads only saved YAML, never curated blueprints, route-link workflow discovery,
 BPMN-derived generation, `discover_workflows()`, `llm_http_route_link`,
 `http_route_link`, or `calls_endpoint`. When writing feature workflows, start at
 the user's button/menu/form action and continue through client request, backend
 work, response payload, client handling, and final UI update. Do not skip proven steps.
+Define outcomes as features: "Natural-language project creation" is a feature;
+`OpencodeService` is supporting evidence. Use `partial` with `missing_coverage` for a
+proven fragment and `pending` with no steps when no reliable sequence can be drawn.
 Do not set `status: generated` unless the saved steps cover the end-to-end flow
 for the proven feature boundary, and do not use route-link relations as workflow
 evidence.

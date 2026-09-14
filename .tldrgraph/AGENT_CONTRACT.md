@@ -62,12 +62,18 @@ Request and response are **separate files**. Never write your answer back into
 
 ## Feature Workflow Explorer artifacts
 
-`tldrgraph init` also creates the saved workflow artifacts used by the visualizer:
+`tldrgraph init` also creates the v2 capability catalog and saved flows used by the visualizer:
 
 | File | Written by | Read by |
 | --- | --- | --- |
 | `.tldrgraph/features.yaml` | `tldrgraph init` | Workflow Explorer |
 | `.tldrgraph/workflows/<feature_id>.yaml` | `tldrgraph init` | Workflow Explorer |
+
+`features.yaml` contains ordered repository-specific areas (`product` before
+`technical`) and concrete capabilities for user, admin, developer, or operator audiences.
+Ranked symbols in the handoff request are investigation leads, not the feature list.
+Good feature: **Natural-language project creation**. Bad feature: `OpencodeService`;
+that service belongs in the capability's source evidence.
 
 The Workflow Explorer tab is intentionally file-driven. It must read only
 `.tldrgraph/features.yaml` and `.tldrgraph/workflows/<feature_id>.yaml`; if those
@@ -80,10 +86,11 @@ discovery, `llm_http_route_link`, `http_route_link`, `calls_endpoint`, or
 BPMN-derived workflow generation. Graph views elsewhere may still show route
 links or BPMN data, but saved feature workflows must remain independent.
 
-Every saved workflow step must be simple enough for non-technical users and vibe
+Every saved workflow step must have a short title simple enough for non-technical users and vibe
 coders, and each step must carry source evidence: `node_id`, symbol, file, and
 line/range. If the evidence is absent, mark the workflow pending instead of
-guessing.
+guessing. Use `status: partial` plus `missing_coverage` for a proven fragment and
+`status: pending` when no reliable sequence can be drawn. Pending workflows contain no steps.
 
 A saved feature workflow should describe the complete flow when evidence exists:
 the exact user button/menu/form action, event handler, validation, client
@@ -93,6 +100,35 @@ job, external system, response payload creation, client response parsing, state
 update, navigation/toast/rendered result, and visible success or error handling.
 Do not stop at only the frontend or only the backend when the source proves the
 handoff, and do not collapse multiple proven source hops into one vague step.
+
+The v2 response shape is:
+
+```yaml
+schema: codechakra/feature-workflows-response@2
+graph_hash: "copy from request"
+areas:
+  - id: ai_builder
+    title: AI application builder
+    summary: Create and revise applications with AI.
+    perspective: product
+    order: 0
+features:
+  - id: natural_language_project_creation
+    area_id: ai_builder
+    title: Natural-language project creation
+    audience: user
+    summary: Turn a prompt into a new application project.
+    evidence: [{node_id: "copy exact graph node id"}]
+    workflow:
+      status: generated  # or partial / pending
+      summary: Create the project and show its result.
+      steps: [{number: 1, phase: user_action, title: Submit a prompt,
+               text: The user submits the project request.,
+               evidence: [{node_id: "copy exact graph node id"}]}]
+```
+
+`partial` and `pending` require `missing_coverage`; `pending` requires an empty
+`steps` list. Allowed audiences are `user`, `admin`, `developer`, and `operator`.
 
 ---
 

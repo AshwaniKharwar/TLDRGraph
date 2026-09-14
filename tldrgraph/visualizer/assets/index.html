@@ -6,6 +6,7 @@
   <title>TLDRGraph 🌐 Architecture Visualizer</title>
   <style>
 /*__STYLES__*/
+/*__WORKFLOW_CATALOG_STYLES__*/
   </style>
 </head>
 <body>
@@ -75,13 +76,13 @@
         <div class="flows-search-container">
           <div class="flows-search-box">
             <span class="flows-search-icon">🔍</span>
-            <input type="text" id="flows-search-input" class="flows-search-input" placeholder="Search workflows, methods, files..." />
+            <input type="text" id="flows-search-input" class="flows-search-input" placeholder="Search capabilities, areas, or source..." />
             <button class="flows-clear-btn" id="flows-search-clear" style="display:none;">✕</button>
           </div>
         </div>
         <div class="flows-list-header">
           <span id="flows-list-count">Workflows (0)</span>
-          <span class="flows-vibe-tag">Architecture Flows</span>
+          <span class="flows-vibe-tag">Capability Catalog</span>
         </div>
         <div class="flows-list" id="flows-list"></div>
       </div>
@@ -238,6 +239,7 @@
     const HIERARCHY = DATA;
     const LAYERS_CONFIG = /*__LAYERS_JSON__*/;
 /*__SOURCEVIEW_JS__*/
+/*__WORKFLOW_CATALOG_JS__*/
 /*__APP_JS__*/
   </script>
 </body>

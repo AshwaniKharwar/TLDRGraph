@@ -42,6 +42,8 @@ tldrgraph init
 heuristic features. It writes `.tldrgraph/feature_workflows_request.yaml`; the
 host coding agent must delegate that request to a source-reading subagent and
 rerun init after `.tldrgraph/feature_workflows_response.yaml` is written.
+The response is a repository-wide catalog: inferred product/technical areas contain
+human capabilities, while ranked symbols are investigation leads rather than features.
 
 `--agent-cli` is now explicit opt-in for architecture layer design and enrichment.
 Never add `--limit`, `--agent-cli`, `--llm-links`, or `--embeddings off` unless
@@ -71,7 +73,9 @@ _RULES_SHORT = """- **Read the source file before writing an intent.** You have 
   on every run.
 - **Complete `needs_feature_workflows` through a subagent.** Delegate the entire
   `.tldrgraph/feature_workflows_request.yaml` file to a source-reading subagent,
-  have it write both features and workflows to the named response file, then rerun init.
+  have it inspect the whole repository and write areas plus generated, partial, or pending
+  capability workflows to the named response file, then rerun init. A feature is an outcome
+  such as "Natural-language project creation," not a symbol such as `OpencodeService`.
 - **Complete `needs_llm_links` when shown.** Read `.tldrgraph/llm_links_request.yaml`,
   open the referenced frontend/backend files, and write `.tldrgraph/llm_links_response.yaml`
   with `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`.
