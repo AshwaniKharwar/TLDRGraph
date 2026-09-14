@@ -2653,7 +2653,11 @@ function initWorkflowsExplorer() {
   if (badgeEl) badgeEl.textContent = workflows.length ? `${readyCount}/${workflows.length}` : '0';
 
   const countEl = document.getElementById('flows-list-count');
-  if (countEl) countEl.textContent = `Features (${readyCount}/${workflows.length} complete)`;
+  if (countEl) {
+    // Do not present a completion summary until there is a completed feature.
+    countEl.hidden = readyCount === 0;
+    countEl.textContent = `Features (${readyCount}/${workflows.length} complete)`;
+  }
 
   // Setup search input
   const searchInput = document.getElementById('flows-search-input');

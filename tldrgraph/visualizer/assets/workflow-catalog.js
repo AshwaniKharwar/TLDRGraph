@@ -93,7 +93,15 @@ function renderWorkflowsList() {
   ));
   const countEl = document.getElementById('flows-list-count');
   const complete = workflows.filter(w => (w.status || 'generated') === 'generated').length;
-  if (countEl) countEl.textContent = `Features (${complete}/${workflows.length} complete)`;
+  if (countEl) {
+    const completedFeatures = allWorkflows.filter(
+      w => (w.status || 'generated') === 'generated'
+    ).length;
+    // Search results must not make the summary disappear; only the absence of
+    // completed features does.
+    countEl.hidden = completedFeatures === 0;
+    countEl.textContent = `Features (${complete}/${workflows.length} complete)`;
+  }
 
   if (!workflows.length) {
     const state = (DATA.workflow_state || {}).state || 'missing_features';
