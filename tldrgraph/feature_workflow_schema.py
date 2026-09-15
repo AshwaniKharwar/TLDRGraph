@@ -97,13 +97,33 @@ def _normalize_steps(root: str, raw: Any, status: str,
     for index, item in enumerate(raw, 1):
         if not isinstance(item, dict):
             raise ValueError(f"workflow step {index} must be an object")
-        steps.append({
+        step = {
             "number": item.get("number"), "phase": item.get("phase"),
             "title": str(item.get("title") or "").strip(),
             "text": str(item.get("text") or "").strip(),
             "evidence": _evidence_list(root, item.get("evidence"), known_files),
-        })
+        }
+        if item.get("options") is not None:
+            step["options"] = _normalize_options(root, item.get("options"), step["phase"], known_files)
+        steps.append(step)
     return steps
+
+
+def _normalize_options(root: str, raw: Any, default_phase: Any,
+                       known_files: set[str]) -> List[Dict[str, Any]]:
+    if not isinstance(raw, list) or len(raw) < 2:
+        raise ValueError("workflow step options require at least two branches")
+    options = []
+    for index, item in enumerate(raw, 1):
+        if not isinstance(item, dict):
+            raise ValueError(f"workflow option {index} must be an object")
+        options.append({
+            "phase": item.get("phase") or default_phase,
+            "title": str(item.get("title") or "").strip(),
+            "text": str(item.get("text") or "").strip(),
+            "evidence": _evidence_list(root, item.get("evidence"), known_files),
+        })
+    return options
 
 
 def _metadata(raw: Any, area_ids: set[str], used_ids: set[str]) -> Tuple[str, str, str, str, str]:

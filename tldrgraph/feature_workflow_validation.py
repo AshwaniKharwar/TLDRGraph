@@ -38,6 +38,26 @@ def _steps_have_shape(steps: List[Dict[str, Any]]) -> bool:
             return False
         if not _valid_evidence(step.get("evidence")):
             return False
+        if not _valid_options(step.get("options"), step["phase"]):
+            return False
+    return True
+
+
+def _valid_options(options: Any, default_phase: str) -> bool:
+    if options is None:
+        return True
+    if not isinstance(options, list) or len(options) < 2:
+        return False
+    for option in options:
+        if not isinstance(option, dict):
+            return False
+        phase = option.get("phase", default_phase)
+        if phase not in ALLOWED_PHASES:
+            return False
+        if not _non_empty(option.get("title")) or not _non_empty(option.get("text")):
+            return False
+        if not _valid_evidence(option.get("evidence")):
+            return False
     return True
 
 
@@ -66,6 +86,9 @@ def _evidence_files(steps: List[Dict[str, Any]]) -> Iterable[str]:
     for step in steps:
         for evidence in step.get("evidence") or []:
             yield str(evidence.get("file") or "").replace("\\", "/").lower()
+        for option in step.get("options") or []:
+            for evidence in option.get("evidence") or []:
+                yield str(evidence.get("file") or "").replace("\\", "/").lower()
 
 
 def _frontend(path: str) -> bool:

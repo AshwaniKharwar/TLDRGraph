@@ -33,6 +33,21 @@ def _step(item: Dict[str, Any], index: int) -> Dict[str, Any]:
         "number": int(item.get("number") or index), "phase": item.get("phase") or "backend",
         "title": item.get("title") or first.get("symbol") or f"Step {index}",
         "text": item.get("text") or "", "evidence": evidence,
+        "options": [_option(option, item.get("phase") or "backend")
+                    for option in item.get("options") or []],
+        "file": first.get("file") or "", "symbol": first.get("symbol") or "",
+        "code_start": int(first.get("code_start") or first.get("line") or 0),
+        "code_end": int(first.get("code_end") or first.get("line") or 0),
+    }
+
+
+def _option(item: Dict[str, Any], default_phase: str) -> Dict[str, Any]:
+    evidence = item.get("evidence") or []
+    first = evidence[0] if evidence else {}
+    return {
+        "phase": item.get("phase") or default_phase,
+        "title": item.get("title") or first.get("symbol") or "Option",
+        "text": item.get("text") or "", "evidence": evidence,
         "file": first.get("file") or "", "symbol": first.get("symbol") or "",
         "code_start": int(first.get("code_start") or first.get("line") or 0),
         "code_end": int(first.get("code_end") or first.get("line") or 0),
@@ -67,6 +82,9 @@ def _source_files(workflows: List[Dict[str, Any]], inventory: Dict[str, Any]) ->
             for evidence in workflow.get("evidence") or [] if evidence.get("file")}
     used.update(evidence.get("file") for workflow in workflows for step in workflow["steps"]
                 for evidence in step.get("evidence") or [] if evidence.get("file"))
+    used.update(evidence.get("file") for workflow in workflows for step in workflow["steps"]
+                for option in step.get("options") or []
+                for evidence in option.get("evidence") or [] if evidence.get("file"))
     by_path = {item["path"]: item for item in inventory.get("files") or []}
     return [by_path[path] for path in sorted(used) if path in by_path]
 

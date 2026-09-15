@@ -5,6 +5,7 @@ const ctx = canvas.getContext('2d');
 const phaseColors = {user_action:'#67a8ff',frontend:'#8a9cff',request:'#c68aff',backend:'#56dfcc',persistence:'#7bd879',external:'#ffca6a',response:'#ff9b73',ui_update:'#ff88ba'};
 let selected = null;
 let shapes = [];
+let edges = [];
 let view = {x:80,y:210,scale:1};
 let dragging = false;
 let pointer = null;
@@ -24,7 +25,11 @@ function searchable(workflow, query) {
   const values = [workflow.title, workflow.summary, workflow.audience, workflow.area_title];
   workflow.steps.forEach(step => {
     values.push(step.title, step.text, step.phase, step.file, step.symbol);
-    step.evidence.forEach(item => values.push(item.file, item.symbol));
+    (step.evidence || []).forEach(item => values.push(item.file, item.symbol));
+    (step.options || []).forEach(option => {
+      values.push(option.title, option.text, option.phase, option.file, option.symbol);
+      (option.evidence || []).forEach(item => values.push(item.file, item.symbol));
+    });
   });
   (workflow.evidence || []).forEach(item => values.push(item.file, item.symbol));
   return values.some(value => String(value || '').toLowerCase().includes(query));
@@ -86,9 +91,22 @@ function wrap(text, width) {
 }
 
 function buildShapes() {
-  shapes = [];
+  shapes = []; edges = [];
   if (!selected || !selected.steps.length) return;
-  selected.steps.forEach((step,index) => shapes.push({step,x:index*260,y:0,w:210,h:112}));
+  const columns = selected.steps.map((step,index) => {
+    const items = step.options && step.options.length ? step.options.map((option,optionIndex) => ({
+      step: {...option, number: step.number, displayNumber: `${step.number}.${String.fromCharCode(97+optionIndex)}`},
+      x:index*280,y:0,w:230,h:112,
+    })) : [{step,x:index*280,y:0,w:230,h:112}];
+    const gap = 28;
+    const height = items.length*112 + (items.length-1)*gap;
+    items.forEach((shape,shapeIndex) => {shape.y = shapeIndex*(112+gap) - height/2 + 56});
+    shapes.push(...items);
+    return items;
+  });
+  for(let i=0;i<columns.length-1;i++) {
+    columns[i].forEach(from => columns[i+1].forEach(to => edges.push({from,to})));
+  }
 }
 
 function drawArrow(a,b) {
@@ -104,19 +122,23 @@ function draw() {
     ctx.fillStyle='#91a0b8';ctx.font='15px sans-serif';ctx.fillText(selected.missing_coverage || 'Workflow pending source investigation.',80,260);return;
   }
   ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.scale,view.scale);
-  for(let i=0;i<shapes.length-1;i++) drawArrow(shapes[i],shapes[i+1]);
+  edges.forEach(edge => drawArrow(edge.from,edge.to));
   shapes.forEach(shape => {
     const {step,x,y,w,h}=shape;ctx.fillStyle='#141d2b';ctx.strokeStyle=phaseColors[step.phase]||'#67a8ff';ctx.lineWidth=2;roundedRect(x,y,w,h,12);
-    ctx.fillStyle=phaseColors[step.phase]||'#67a8ff';ctx.font='600 10px sans-serif';ctx.fillText(`${step.number}. ${step.phase.replace('_',' ').toUpperCase()}`,x+14,y+21);
-    ctx.fillStyle='#edf3ff';ctx.font='600 14px sans-serif';wrap(step.title,180).forEach((line,index)=>ctx.fillText(line,x+14,y+48+index*18));
+    ctx.fillStyle=phaseColors[step.phase]||'#67a8ff';ctx.font='600 10px sans-serif';ctx.fillText(`${step.displayNumber || step.number}. ${step.phase.replace('_',' ').toUpperCase()}`,x+14,y+21);
+    ctx.fillStyle='#edf3ff';ctx.font='600 14px sans-serif';wrap(step.title,200).forEach((line,index)=>ctx.fillText(line,x+14,y+48+index*18));
     ctx.fillStyle='#91a0b8';ctx.font='11px sans-serif';ctx.fillText(`${step.evidence.length} source ${step.evidence.length===1?'reference':'references'}`,x+14,y+h-14);
   });ctx.restore();
 }
 
 function fitWorkflow() {
-  const width = Math.max(1,(selected && selected.steps.length || 1)*260-50);
+  buildShapes();
+  const width = Math.max(1,(selected && selected.steps.length || 1)*280-50);
+  const minY = shapes.length ? Math.min(...shapes.map(shape => shape.y)) : 0;
+  const maxY = shapes.length ? Math.max(...shapes.map(shape => shape.y+shape.h)) : 112;
+  const height = Math.max(112,maxY-minY);
   const box=canvas.getBoundingClientRect();view.scale=Math.min(1.15,Math.max(.35,(box.width-120)/width));
-  view.x=70;view.y=Math.max(180,box.height/2-56*view.scale);
+  view.x=70;view.y=Math.max(150,box.height/2-((minY+height/2)*view.scale));
   document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;
 }
 

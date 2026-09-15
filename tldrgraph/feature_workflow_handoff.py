@@ -46,8 +46,18 @@ def feature_workflow_status_lines(root: str, stats: Optional[Dict[str, Any]]) ->
 
 
 def _response_shape() -> Dict[str, Any]:
-    evidence = {"file": "relative/source.py", "symbol": "verified_symbol",
+    def evidence() -> Dict[str, Any]:
+        return {"file": "relative/source.py", "symbol": "verified_symbol",
                 "line": 10, "code_start": 10, "code_end": 24}
+
+    option_a = {"phase": "optional override; defaults to parent step phase",
+                "title": "Mutually exclusive path title",
+                "text": "Source-backed behavior for this path.",
+                "evidence": [evidence()]}
+    option_b = {"phase": "optional override; defaults to parent step phase",
+                "title": "Second mutually exclusive path title",
+                "text": "Source-backed behavior for the second path.",
+                "evidence": [evidence()]}
     return {
         "schema": RESPONSE_SCHEMA, "source_hash": "copy from this request",
         "areas": [{"id": "lowercase_snake_case", "title": "Capability area",
@@ -56,14 +66,15 @@ def _response_shape() -> Dict[str, Any]:
         "features": [{
             "id": "lowercase_snake_case", "area_id": "copy an area id",
             "title": "Human capability title", "audience": "user | admin | developer | operator",
-            "summary": "Source-backed outcome.", "evidence": [evidence],
+            "summary": "Source-backed outcome.", "evidence": [evidence()],
             "workflow": {"status": "generated | partial | pending",
                          "summary": "Complete or known flow.",
                          "missing_coverage": "required for partial or pending",
                          "steps": [{"number": 1,
                                     "phase": "user_action | frontend | request | backend | persistence | external | response | ui_update",
                                     "title": "Short title", "text": "Source-backed behavior.",
-                                    "evidence": [evidence]}]},
+                                    "evidence": [evidence()],
+                                    "options": [option_a, option_b]}]},
         }],
     }
 
@@ -79,6 +90,7 @@ def write_feature_workflow_request(root: str, inventory: Dict[str, Any], error: 
             "Inspect the whole repository: docs, UI actions, APIs, services, persistence, integrations, configuration, and operations.",
             "Define meaningful user, admin, developer, or operator outcomes; never use a class or service as the feature itself.",
             "Start at the initiating action and follow every proven hop through the response or final UI update.",
+            "When a step has mutually exclusive paths, modes, or choices, add options so each path becomes its own flow-chart node.",
             "Use generated only for a complete flow, partial with missing_coverage for a proven fragment, and pending with no steps when no sequence is reliable.",
             "Every feature and displayed step needs verified repository-relative file, symbol, and line-range evidence.",
             f"Write {RESPONSE_SCHEMA} YAML to .tldrgraph/{RESPONSE_FILENAME}, then rerun tldrgraph init.",

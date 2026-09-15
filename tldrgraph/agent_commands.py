@@ -62,6 +62,9 @@ operator outcomes. Use `generated` only for a proven end-to-end journey,
 `partial` with `missing_coverage` for a proven fragment, and `pending` with no
 steps when no reliable sequence can be established.
 
+When a workflow step has mutually exclusive paths, modes, or choices, represent
+them as step `options` so each path appears as its own flow-chart node.
+
 The full schema is in `.tldrgraph/AGENT_CONTRACT.md`.
 """
 

@@ -30,6 +30,12 @@ code_end: 28
 Paths must be repository-relative and present in the request's source inventory.
 Line ranges must exist in the current file. Never invent evidence.
 
+When one workflow step has mutually exclusive paths, modes, or choices, add an
+`options` list to that step. Each option becomes its own flow-chart node and must
+include its own `title`, `text`, and verified `evidence`. For example, a runtime
+bootstrap step with Docker and Kubernetes paths should use two options, not one
+step with both paths hidden as references.
+
 ## Catalog rules
 
 - Areas have a `product` or `technical` perspective and an order within it.
@@ -41,6 +47,8 @@ Line ranges must exist in the current file. Never invent evidence.
 - A `pending` workflow has no steps and explains what could not be established.
 - User-facing flows begin at the initiating action and include the client request,
   backend work, response, and UI update when those stages exist.
+- Alternate paths are represented as step `options` so the explorer can draw
+  separate branch nodes that reconnect to the following step.
 
 The request contains the exact response shape and current `source_hash`. Copy the
 hash verbatim. Continue until `tldrgraph init` reports `done`.

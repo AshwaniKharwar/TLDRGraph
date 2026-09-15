@@ -5,6 +5,7 @@ The explorer reads only the v3 feature manifest and workflow YAML files. It show
 - ordered product and technical capability areas;
 - generated, partial, and pending status;
 - a pannable and zoomable workflow canvas;
+- branch nodes for explicitly modeled alternate workflow paths;
 - source evidence for every displayed step;
 - live source through `ui --serve` or a browser folder grant.
 
