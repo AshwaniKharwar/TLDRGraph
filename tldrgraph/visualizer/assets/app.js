@@ -10,6 +10,7 @@ let view = {x:80,y:210,scale:1};
 let dragging = false;
 let pointer = null;
 let dragStart = null;
+let direction = 'horizontal';
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -93,26 +94,44 @@ function wrap(text, width) {
 function buildShapes() {
   shapes = []; edges = [];
   if (!selected || !selected.steps.length) return;
-  const columns = selected.steps.map((step,index) => {
+  const groups = selected.steps.map((step,index) => {
     const items = step.options && step.options.length ? step.options.map((option,optionIndex) => ({
       step: {...option, number: step.number, displayNumber: `${step.number}.${String.fromCharCode(97+optionIndex)}`},
       x:index*280,y:0,w:230,h:112,
     })) : [{step,x:index*280,y:0,w:230,h:112}];
     const gap = 28;
-    const height = items.length*112 + (items.length-1)*gap;
-    items.forEach((shape,shapeIndex) => {shape.y = shapeIndex*(112+gap) - height/2 + 56});
+    if (direction === 'horizontal') {
+      const height = items.length*112 + (items.length-1)*gap;
+      items.forEach((shape,shapeIndex) => {
+        shape.x = index * 280;
+        shape.y = shapeIndex * (112 + gap) - height / 2 + 56;
+      });
+    } else {
+      const width = items.length * 230 + (items.length - 1) * gap;
+      items.forEach((shape,shapeIndex) => {
+        shape.x = shapeIndex * (230 + gap) - width / 2 + 115;
+        shape.y = index * 160;
+      });
+    }
     shapes.push(...items);
     return items;
   });
-  for(let i=0;i<columns.length-1;i++) {
-    columns[i].forEach(from => columns[i+1].forEach(to => edges.push({from,to})));
+  for(let i=0;i<groups.length-1;i++) {
+    groups[i].forEach(from => groups[i+1].forEach(to => edges.push({from,to})));
   }
 }
 
 function drawArrow(a,b) {
-  const x1=a.x+a.w, y1=a.y+a.h/2, x2=b.x, y2=b.y+b.h/2;
+  const horizontal = direction === 'horizontal';
+  const x1 = horizontal ? a.x + a.w : a.x + a.w / 2;
+  const y1 = horizontal ? a.y + a.h / 2 : a.y + a.h;
+  const x2 = horizontal ? b.x : b.x + b.w / 2;
+  const y2 = horizontal ? b.y + b.h / 2 : b.y;
   ctx.strokeStyle='#436181';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-  ctx.fillStyle='#436181';ctx.beginPath();ctx.moveTo(x2,y2);ctx.lineTo(x2-10,y2-6);ctx.lineTo(x2-10,y2+6);ctx.fill();
+  ctx.fillStyle='#436181';ctx.beginPath();
+  if (horizontal) { ctx.moveTo(x2,y2);ctx.lineTo(x2-10,y2-6);ctx.lineTo(x2-10,y2+6); }
+  else { ctx.moveTo(x2,y2);ctx.lineTo(x2-6,y2-10);ctx.lineTo(x2+6,y2-10); }
+  ctx.fill();
 }
 
 function draw() {
@@ -133,12 +152,19 @@ function draw() {
 
 function fitWorkflow() {
   buildShapes();
-  const width = Math.max(1,(selected && selected.steps.length || 1)*280-50);
+  const minX = shapes.length ? Math.min(...shapes.map(shape => shape.x)) : 0;
+  const maxX = shapes.length ? Math.max(...shapes.map(shape => shape.x + shape.w)) : 230;
   const minY = shapes.length ? Math.min(...shapes.map(shape => shape.y)) : 0;
-  const maxY = shapes.length ? Math.max(...shapes.map(shape => shape.y+shape.h)) : 112;
-  const height = Math.max(112,maxY-minY);
-  const box=canvas.getBoundingClientRect();view.scale=Math.min(1.15,Math.max(.35,(box.width-120)/width));
-  view.x=70;view.y=Math.max(150,box.height/2-((minY+height/2)*view.scale));
+  const maxY = shapes.length ? Math.max(...shapes.map(shape => shape.y + shape.h)) : 112;
+  const width = Math.max(230, maxX - minX);
+  const height = Math.max(112, maxY - minY);
+  const box=canvas.getBoundingClientRect();
+  const availableWidth = Math.max(1, box.width - 100);
+  const top = 170;
+  const availableHeight = Math.max(1, box.height - top - 70);
+  view.scale = Math.min(1.15, Math.max(.3, Math.min(availableWidth / width, availableHeight / height)));
+  view.x = (box.width - width * view.scale) / 2 - minX * view.scale;
+  view.y = top + (availableHeight - height * view.scale) / 2 - minY * view.scale;
   document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;
 }
 
@@ -164,6 +190,18 @@ canvas.addEventListener('wheel',event=>{event.preventDefault();view.scale=Math.m
 document.getElementById('zoom-in').onclick=()=>{view.scale=Math.min(2,view.scale*1.15);draw()};
 document.getElementById('zoom-out').onclick=()=>{view.scale=Math.max(.3,view.scale/1.15);draw()};
 document.getElementById('fit').onclick=()=>{fitWorkflow();draw()};
+function setDirection(nextDirection) {
+  direction = nextDirection;
+  ['horizontal', 'vertical'].forEach(value => {
+    const button = document.getElementById(`direction-${value}`);
+    const active = value === direction;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  fitWorkflow(); draw();
+}
+document.getElementById('direction-horizontal').onclick=()=>setDirection('horizontal');
+document.getElementById('direction-vertical').onclick=()=>setDirection('vertical');
 document.getElementById('close-detail').onclick=()=>{document.getElementById('detail').hidden=true};
 document.getElementById('search').addEventListener('input',renderCatalog);
 window.addEventListener('resize',resize);
