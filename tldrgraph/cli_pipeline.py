@@ -25,6 +25,7 @@ def emit_status(status: str, lines: List[str], progress: Dict[str, Any], as_json
     else:
         click.echo("\nTLDRGRAPH INIT — " + ("COMPLETE" if status == STATUS_DONE else "NEXT ACTION REQUIRED"))
         click.echo(f"status: {status}")
+        click.echo(f"source_hash: {progress['source_hash']}")
         for line in lines:
             click.echo(line)
         click.echo()

@@ -1,11 +1,11 @@
 # TLDRGraph Workflow Explorer
 
 TLDRGraph inventories repository source files and computes a deterministic
-`source_hash`. A missing or stale catalog causes `tldrgraph init` to write
-`.tldrgraph/feature_workflows_request.yaml`. The active coding agent delegates
-that request to a source-reading subagent, which writes the v3 response. A second
-init validates repository-relative files and line ranges, atomically applies the
-catalog, and generates a standalone browser explorer.
+`source_hash`. A missing, invalid, or stale catalog makes `tldrgraph init`
+return `needs_feature_workflows`. The active coding agent delegates each
+discovered feature to its own source-reading subagent, then writes final catalog
+and workflow files directly. A second init validates repository-relative files
+and line ranges and generates a standalone browser explorer.
 
 Commands:
 

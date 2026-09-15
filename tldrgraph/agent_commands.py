@@ -49,12 +49,13 @@ INSTRUCTIONS_BODY = """## TLDRGraph
 TLDRGraph builds a source-backed feature and workflow catalog for this repository.
 It does not build an architecture graph, infer workflows heuristically, or run AI itself.
 
-Run `tldrgraph init`. If it returns `needs_feature_workflows`, read
-`.tldrgraph/feature_workflows_request.yaml`, delegate the entire request to a
-source-reading subagent, and have it write
-`.tldrgraph/feature_workflows_response.yaml`. Run `tldrgraph init` again to
-validate and apply the response. Do not edit generated `features.yaml` or
-`workflows/*.yaml` directly.
+Run `tldrgraph init`. If it returns `needs_feature_workflows`, identify feature
+outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
+with the reported `source_hash`. Then spawn one fresh source-reading subagent
+for each indexed feature. Each worker writes only its assigned complete
+`.tldrgraph/workflows/<feature_id>.yaml` v4 file; it never edits `features.yaml`
+or another feature's workflow. Run `tldrgraph init` again to validate the direct
+artifacts and generate the explorer.
 
 Every capability and workflow step must cite a verified repository-relative
 file, symbol, and line range. Define capabilities as user, admin, developer, or
@@ -62,8 +63,11 @@ operator outcomes. Use `generated` only for a proven end-to-end journey,
 `partial` with `missing_coverage` for a proven fragment, and `pending` with no
 steps when no reliable sequence can be established.
 
-When a workflow step has mutually exclusive paths, modes, or choices, represent
-them as step `options` so each path appears as its own flow-chart node.
+Model each feature as a directly renderable flowchart: initiating action,
+proven process steps, decision branches, joined continuation, and final result.
+When a workflow step has mutually exclusive paths, modes, or choices, make the
+step the decision node and represent each labeled, evidence-backed branch as a
+step `options` entry that rejoins the following proven step.
 
 The full schema is in `.tldrgraph/AGENT_CONTRACT.md`.
 """
@@ -78,11 +82,13 @@ tldrgraph init
 
 When the status is `needs_feature_workflows`:
 
-1. Read `.tldrgraph/feature_workflows_request.yaml` completely.
-2. Spawn a source-reading subagent and delegate the entire request.
-3. Have it inspect the repository and write the requested v3 response to
-   `.tldrgraph/feature_workflows_response.yaml`.
-4. Run `tldrgraph init` again.
+1. Read the `source_hash` and validation status returned by `tldrgraph init`.
+2. Identify feature outcomes, define areas, and write the v4
+   `.tldrgraph/features.yaml` index before delegating workflow research.
+3. Spawn one fresh source-reading subagent for each indexed feature. Never assign the entire catalog to one subagent.
+4. Have each worker write only its evidence-backed v4 workflow to its assigned
+   `.tldrgraph/workflows/<feature_id>.yaml` file; do not collect or rewrite it.
+5. Run `tldrgraph init` again.
 
 Continue until the status is `done`.
 """

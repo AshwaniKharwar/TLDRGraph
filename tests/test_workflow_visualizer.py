@@ -1,5 +1,4 @@
-from conftest import complete_response
-from tldrgraph.feature_workflow_handoff import apply_feature_workflow_response
+from conftest import complete_catalog
 from tldrgraph.payload import atomic_write
 from tldrgraph.source_inventory import build_source_inventory
 from tldrgraph.visualizer import generate_visualizer_html, prepare_visualizer_data
@@ -8,30 +7,29 @@ from tldrgraph.visualizer import generate_visualizer_html, prepare_visualizer_da
 def _apply(source_repo):
     inventory = build_source_inventory(str(source_repo))
     state = source_repo / ".tldrgraph"
-    state.mkdir(exist_ok=True)
-    atomic_write(str(state / "feature_workflows_response.yaml"),
-                 complete_response(source_repo, inventory["source_hash"]))
-    manifest, error = apply_feature_workflow_response(str(source_repo), inventory)
-    assert not error
+    (state / "workflows").mkdir(parents=True, exist_ok=True)
+    manifest, workflows = complete_catalog(source_repo, inventory["source_hash"])
+    atomic_write(str(state / "features.yaml"), manifest)
+    for feature_id, workflow in workflows.items():
+        atomic_write(str(state / "workflows" / f"{feature_id}.yaml"), workflow)
     return inventory, manifest
 
 
 def _apply_with_branch(source_repo):
     inventory = build_source_inventory(str(source_repo))
     state = source_repo / ".tldrgraph"
-    state.mkdir(exist_ok=True)
-    payload = complete_response(source_repo, inventory["source_hash"])
-    payload["features"][0]["workflow"]["steps"][1]["options"] = [
-        {"title": "Docker path", "text": "The Docker runtime is bootstrapped.",
+    (state / "workflows").mkdir(parents=True, exist_ok=True)
+    manifest, workflows = complete_catalog(source_repo, inventory["source_hash"])
+    workflows["run_application"]["steps"][1]["options"] = [
+        {"phase": "backend", "title": "Docker path", "text": "The Docker runtime is bootstrapped.",
          "evidence": [{"file": "app.py", "symbol": "start", "line": 1,
                        "code_start": 1, "code_end": 2}]},
-        {"title": "Kubernetes path", "text": "The Kubernetes runtime is provisioned.",
+        {"phase": "backend", "title": "Kubernetes path", "text": "The Kubernetes runtime is provisioned.",
          "evidence": [{"file": "app.py", "symbol": "run", "line": 4,
                        "code_start": 4, "code_end": 5}]},
     ]
-    atomic_write(str(state / "feature_workflows_response.yaml"), payload)
-    manifest, error = apply_feature_workflow_response(str(source_repo), inventory)
-    assert not error
+    atomic_write(str(state / "features.yaml"), manifest)
+    atomic_write(str(state / "workflows" / "run_application.yaml"), workflows["run_application"])
     return inventory, manifest
 
 
@@ -71,3 +69,13 @@ def test_generated_html_is_standalone_and_graph_free(source_repo):
     assert "module_edges" not in html
     assert "child_edges" not in html
     assert "https://" not in html
+
+
+def test_generated_html_uses_vertical_flowchart_renderer(source_repo):
+    _apply_with_branch(source_repo)
+    html = open(generate_visualizer_html(str(source_repo)), encoding="utf-8").read()
+    assert "let direction = 'vertical'" in html
+    assert "function drawDecision" in html
+    assert "function buildVerticalGroups" in html
+    assert "function contains(shape, point)" in html
+    assert 'id="direction-vertical" class="active"' in html

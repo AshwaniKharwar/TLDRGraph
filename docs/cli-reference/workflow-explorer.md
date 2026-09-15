@@ -2,8 +2,9 @@
 
 ## `tldrgraph init [PATH] [--json]`
 
-Inventories source files, requests or applies the agent response, and generates
-the explorer after a valid catalog is available.
+Inventories source files, validates the direct catalog index and independently
+authored workflow files, and generates the explorer when every indexed feature
+has a valid workflow.
 
 ## `tldrgraph ui`
 

@@ -3,17 +3,20 @@
 TLDRGraph builds a source-backed feature catalog and Workflow Explorer. It does
 not construct an architecture graph and does not launch an AI process itself.
 
-## Initialization handshake
+## Direct artifact workflow
 
-Run `tldrgraph init`. A missing or stale catalog produces
-`.tldrgraph/feature_workflows_request.yaml`. Delegate that complete request to a
-source-reading subagent. The subagent writes the requested
-`tldrgraph/feature-workflows-response@3` document to
-`.tldrgraph/feature_workflows_response.yaml`.
+Run `tldrgraph init`. A missing, invalid, or stale catalog returns
+`needs_feature_workflows` and prints the current `source_hash`. The active coding
+agent identifies feature outcomes and immediately writes the `.tldrgraph/features.yaml`
+catalog index. It then delegates each indexed outcome to a separate source-reading
+subagent. Every worker writes only its own complete file under
+`.tldrgraph/workflows/`; the active agent does not collect worker objects or
+write workflow files. Run `tldrgraph init` again to validate those artifacts
+against the current source inventory and generate the visualizer.
 
-Run `tldrgraph init` again. TLDRGraph validates the response against the current
-source inventory and atomically writes `.tldrgraph/features.yaml` plus one file
-per capability under `.tldrgraph/workflows/`.
+Never delegate the entire catalog to one source-reading subagent. Workers may
+run in parallel, but the active agent owns feature discovery, shared areas,
+index creation and delegation; each worker owns its workflow-file write.
 
 ## Evidence
 
@@ -27,14 +30,18 @@ code_start: 12
 code_end: 28
 ```
 
-Paths must be repository-relative and present in the request's source inventory.
+Paths must be repository-relative and present in the current source inventory.
 Line ranges must exist in the current file. Never invent evidence.
 
-When one workflow step has mutually exclusive paths, modes, or choices, add an
-`options` list to that step. Each option becomes its own flow-chart node and must
-include its own `title`, `text`, and verified `evidence`. For example, a runtime
-bootstrap step with Docker and Kubernetes paths should use two options, not one
-step with both paths hidden as references.
+Model each generated workflow as a directly renderable flowchart: initiating
+action, proven process steps, decision branches, joined continuation, and final
+response or UI update. When one workflow step has mutually exclusive paths,
+modes, or choices, that step is rendered as a decision node. Add an `options`
+list for its labeled branches; each option becomes a clickable process node,
+rejoins the following proven step, and includes its own `title`, `text`, and
+verified `evidence`. For example, a runtime bootstrap decision with Docker and
+Kubernetes paths should use two options, not one step with both paths hidden as
+references.
 
 ## Catalog rules
 
@@ -47,8 +54,13 @@ step with both paths hidden as references.
 - A `pending` workflow has no steps and explains what could not be established.
 - User-facing flows begin at the initiating action and include the client request,
   backend work, response, and UI update when those stages exist.
-- Alternate paths are represented as step `options` so the explorer can draw
-  separate branch nodes that reconnect to the following step.
+- Alternate paths are represented as a decision step plus `options`, so the
+  explorer can draw labeled branch nodes that reconnect to the following step.
 
-The request contains the exact response shape and current `source_hash`. Copy the
-hash verbatim. Continue until `tldrgraph init` reports `done`.
+The catalog index uses schema `tldrgraph/features@4`, generator
+`feature-catalog-agent@4`, and the reported `source_hash`. Its feature rows only
+contain ID, area, title, audience, summary, and workflow path. Each worker-owned
+workflow uses schema `tldrgraph/feature-workflow@4`, generator
+`feature-workflow-subagent@4`, the same source hash, matching ID and title, and
+all feature evidence, status, missing coverage, steps, and options. Continue
+until `tldrgraph init` reports `done`.

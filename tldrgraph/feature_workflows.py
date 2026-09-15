@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 from typing import Any, Dict
 
+from .payload import read_payload
+
 FEATURES_FILENAME = "features.yaml"
 WORKFLOWS_DIRNAME = "workflows"
-WORKFLOW_GENERATOR = "feature-workflow-subagent@3"
+WORKFLOW_GENERATOR = "feature-workflow-subagent@4"
 
 
 def features_path(root: str) -> str:
@@ -28,30 +30,27 @@ def relative_workflow_path(feature_id: str) -> str:
 
 def generate_feature_workflow_files(root: str, inventory: Dict[str, Any]) -> Dict[str, Any]:
     from .feature_workflow_handoff import (
-        apply_feature_workflow_response,
-        clear_feature_workflow_request,
         current_manifest,
-        write_feature_workflow_request,
     )
 
     current_hash = str(inventory["source_hash"])
-    manifest, error = apply_feature_workflow_response(root, inventory)
-    if not error:
-        manifest = manifest or current_manifest(root, current_hash)
+    manifest, error = current_manifest(root, inventory)
     if manifest is not None:
-        clear_feature_workflow_request(root)
         features = manifest.get("features") or []
+        statuses = [
+            str((read_payload(workflow_path(root, str(item.get("id") or ""))) or {}).get("status") or "")
+            for item in features
+        ]
         return {
             "features": len(features),
-            "generated": sum(item.get("status") == "generated" for item in features),
-            "partial": sum(item.get("status") == "partial" for item in features),
-            "workflow_pending": sum(item.get("status") == "pending" for item in features),
+            "generated": statuses.count("generated"),
+            "partial": statuses.count("partial"),
+            "workflow_pending": statuses.count("pending"),
             "pending": 0, "source_hash": current_hash, "error": "", "request_path": "",
         }
-    request = write_feature_workflow_request(root, inventory, error)
     return {"features": 0, "generated": 0, "partial": 0, "workflow_pending": 0,
             "pending": 1, "source_hash": current_hash, "error": error,
-            "request_path": request}
+            "request_path": ""}
 
 
 def load_feature_manifest(root: str, current_hash: str = ""):

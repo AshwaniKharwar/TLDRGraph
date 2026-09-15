@@ -3,25 +3,23 @@
 TLDRGraph builds a source-backed feature catalog and Workflow Explorer. It does
 not construct an architecture graph and does not launch an AI process itself.
 
-## Initialization handshake
+## Direct artifact workflow
 
-Run `tldrgraph init`. A missing or stale catalog produces:
-
-```text
-.tldrgraph/feature_workflows_request.yaml
-```
-
-The coding agent must delegate that complete request to a source-reading
-subagent. The subagent writes the requested
-`tldrgraph/feature-workflows-response@3` document to:
+Run `tldrgraph init`. A missing, invalid, or stale catalog returns
+`needs_feature_workflows` and prints the current `source_hash`. The active coding
+agent identifies feature outcomes and writes the catalog index first. It then
+delegates each indexed outcome to a separate source-reading subagent. Each
+worker writes only its assigned workflow file; the active agent does not collect
+worker objects or write workflows:
 
 ```text
-.tldrgraph/feature_workflows_response.yaml
+.tldrgraph/features.yaml
+.tldrgraph/workflows/<feature_id>.yaml
 ```
 
-Run `tldrgraph init` again. TLDRGraph validates the response against the current
-source inventory and atomically writes `.tldrgraph/features.yaml` plus one file
-per capability under `.tldrgraph/workflows/`.
+Each final artifact must use the reported source hash. Run `tldrgraph init`
+again; TLDRGraph validates the direct artifacts against the current source
+inventory and generates the visualizer.
 
 ## Evidence
 
@@ -36,7 +34,7 @@ code_start: 12
 code_end: 28
 ```
 
-Paths must be repository-relative and present in the request's source inventory.
+Paths must be repository-relative and present in the current source inventory.
 Line ranges must exist in the current file. Never invent evidence.
 
 When one workflow step has mutually exclusive paths, modes, or choices, add an
@@ -59,6 +57,9 @@ step with both paths hidden as references.
 - Alternate paths are represented as step `options` so the explorer can draw
   separate branch nodes that reconnect to the following step.
 
-The request contains the exact response shape and current `source_hash`. Copy the
-hash verbatim. Continue the handshake until `tldrgraph init` reports `done`, then
-run `tldrgraph ui --serve`.
+`features.yaml` uses schema `tldrgraph/features@4`, generator
+`feature-catalog-agent@4`, the reported `source_hash`, areas, and lightweight
+feature index metadata. Each worker-owned workflow uses schema
+`tldrgraph/feature-workflow@4`, generator `feature-workflow-subagent@4`, the
+reported source hash, and all status and evidence. Continue until `tldrgraph
+init` reports `done`, then run `tldrgraph ui --serve`.

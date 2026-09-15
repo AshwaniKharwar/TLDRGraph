@@ -1,4 +1,4 @@
-from tldrgraph.agent_commands import INSTRUCTIONS_BODY
+from tldrgraph.agent_commands import COMMAND_BODY, INSTRUCTIONS_BODY
 from tldrgraph.installer import ensure_gitignore, install_agent_rules
 
 
@@ -10,6 +10,8 @@ def test_installer_writes_graph_free_contract_and_rules(tmp_path):
     assert INSTRUCTIONS_BODY.strip() in agents
     assert "query" not in INSTRUCTIONS_BODY
     assert "graphify" not in INSTRUCTIONS_BODY.lower()
+    assert "each indexed feature" in INSTRUCTIONS_BODY
+    assert "Never assign the entire catalog to one subagent" in COMMAND_BODY
     assert "contract" in result
 
 

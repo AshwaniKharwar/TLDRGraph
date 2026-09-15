@@ -1,13 +1,11 @@
 # Agent contract
 
-The handshake uses four v3 schemas:
+The direct-artifact contract uses two v4 schemas:
 
-- `tldrgraph/feature-workflows-request@3`
-- `tldrgraph/feature-workflows-response@3`
-- `tldrgraph/features@3`
-- `tldrgraph/feature-workflow@3`
+- `tldrgraph/features@4`
+- `tldrgraph/feature-workflow@4`
 
-The request contains the current `source_hash`, deterministic source inventory,
-instructions, and exact response shape. Responses with a stale hash, unsafe path,
-missing file, or invalid line range are rejected without replacing the last
-accepted catalog.
+The active agent writes the catalog index with the current `source_hash`; each
+assigned feature worker writes its own workflow file with that same hash. A stale
+hash, unsafe path, missing workflow, or invalid line range is rejected without
+replacing valid artifacts.

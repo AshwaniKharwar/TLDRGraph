@@ -10,7 +10,7 @@ let view = {x:80,y:210,scale:1};
 let dragging = false;
 let pointer = null;
 let dragStart = null;
-let direction = 'horizontal';
+let direction = 'vertical';
 
 function escapeHtml(value) {
   return String(value || '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
@@ -78,10 +78,6 @@ function resize() {
   ctx.setTransform(ratio,0,0,ratio,0,0); draw();
 }
 
-function roundedRect(x,y,w,h,r) {
-  ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); ctx.stroke();
-}
-
 function wrap(text, width) {
   const words = String(text || '').split(/\s+/); const lines = []; let line = '';
   words.forEach(word => {
@@ -91,47 +87,125 @@ function wrap(text, width) {
   if (line) lines.push(line); return lines.slice(0,3);
 }
 
+function roundedRect(x,y,w,h,r) {
+  ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill(); ctx.stroke();
+}
+
+function makeNode(step, kind, x, y, w, h) {
+  return {step, kind, x, y, w, h};
+}
+
 function buildShapes() {
   shapes = []; edges = [];
   if (!selected || !selected.steps.length) return;
-  const groups = selected.steps.map((step,index) => {
-    const items = step.options && step.options.length ? step.options.map((option,optionIndex) => ({
-      step: {...option, number: step.number, displayNumber: `${step.number}.${String.fromCharCode(97+optionIndex)}`},
-      x:index*280,y:0,w:230,h:112,
-    })) : [{step,x:index*280,y:0,w:230,h:112}];
-    const gap = 28;
-    if (direction === 'horizontal') {
-      const height = items.length*112 + (items.length-1)*gap;
-      items.forEach((shape,shapeIndex) => {
-        shape.x = index * 280;
-        shape.y = shapeIndex * (112 + gap) - height / 2 + 56;
-      });
-    } else {
-      const width = items.length * 230 + (items.length - 1) * gap;
-      items.forEach((shape,shapeIndex) => {
-        shape.x = shapeIndex * (230 + gap) - width / 2 + 115;
-        shape.y = index * 160;
-      });
-    }
-    shapes.push(...items);
-    return items;
+  const groups = direction === 'vertical' ? buildVerticalGroups() : buildHorizontalGroups();
+  groups.forEach(group => shapes.push(group.main, ...(group.options || [])));
+  groups.forEach((group, index) => {
+    if (!group.options) return;
+    group.options.forEach(option => edges.push({from: group.main, to: option, label: option.step.title, branch: true}));
+    const next = groups[index + 1];
+    if (next) group.options.forEach(option => edges.push({from: option, to: next.main, merge: true}));
   });
-  for(let i=0;i<groups.length-1;i++) {
-    groups[i].forEach(from => groups[i+1].forEach(to => edges.push({from,to})));
+  for (let index = 0; index < groups.length - 1; index += 1) {
+    if (!groups[index].options) edges.push({from: groups[index].main, to: groups[index + 1].main});
   }
 }
 
-function drawArrow(a,b) {
-  const horizontal = direction === 'horizontal';
-  const x1 = horizontal ? a.x + a.w : a.x + a.w / 2;
-  const y1 = horizontal ? a.y + a.h / 2 : a.y + a.h;
-  const x2 = horizontal ? b.x : b.x + b.w / 2;
-  const y2 = horizontal ? b.y + b.h / 2 : b.y;
-  ctx.strokeStyle='#436181';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();
-  ctx.fillStyle='#436181';ctx.beginPath();
-  if (horizontal) { ctx.moveTo(x2,y2);ctx.lineTo(x2-10,y2-6);ctx.lineTo(x2-10,y2+6); }
-  else { ctx.moveTo(x2,y2);ctx.lineTo(x2-6,y2-10);ctx.lineTo(x2+6,y2-10); }
-  ctx.fill();
+function buildVerticalGroups() {
+  const groups = []; const processWidth = 230; const processHeight = 112;
+  const decisionWidth = 210; const decisionHeight = 126; const optionGap = 42;
+  let cursor = 0;
+  selected.steps.forEach(step => {
+    if (!(step.options && step.options.length)) {
+      const main = makeNode(step, 'process', -processWidth / 2, cursor, processWidth, processHeight);
+      groups.push({main}); cursor += processHeight + 92; return;
+    }
+    const main = makeNode(step, 'decision', -decisionWidth / 2, cursor, decisionWidth, decisionHeight);
+    const branchWidth = step.options.length * processWidth + (step.options.length - 1) * optionGap;
+    const optionY = cursor + decisionHeight + 94;
+    const options = step.options.map((option, index) => makeNode(
+      {...option, number: step.number, displayNumber: `${step.number}.${String.fromCharCode(97 + index)}`},
+      'process', -branchWidth / 2 + index * (processWidth + optionGap), optionY, processWidth, processHeight,
+    ));
+    groups.push({main, options}); cursor = optionY + processHeight + 120;
+  });
+  return groups;
+}
+
+function buildHorizontalGroups() {
+  const groups = []; const processWidth = 230; const processHeight = 112;
+  const decisionWidth = 190; const decisionHeight = 126; const optionGap = 34;
+  let cursor = 0;
+  selected.steps.forEach(step => {
+    if (!(step.options && step.options.length)) {
+      const main = makeNode(step, 'process', cursor, -processHeight / 2, processWidth, processHeight);
+      groups.push({main}); cursor += processWidth + 110; return;
+    }
+    const main = makeNode(step, 'decision', cursor, -decisionHeight / 2, decisionWidth, decisionHeight);
+    const branchHeight = step.options.length * processHeight + (step.options.length - 1) * optionGap;
+    const optionX = cursor + decisionWidth + 106;
+    const options = step.options.map((option, index) => makeNode(
+      {...option, number: step.number, displayNumber: `${step.number}.${String.fromCharCode(97 + index)}`},
+      'process', optionX, -branchHeight / 2 + index * (processHeight + optionGap), processWidth, processHeight,
+    ));
+    groups.push({main, options}); cursor = optionX + processWidth + 125;
+  });
+  return groups;
+}
+
+function anchor(node, side) {
+  if (side === 'top') return {x: node.x + node.w / 2, y: node.y};
+  if (side === 'bottom') return {x: node.x + node.w / 2, y: node.y + node.h};
+  if (side === 'left') return {x: node.x, y: node.y + node.h / 2};
+  return {x: node.x + node.w, y: node.y + node.h / 2};
+}
+
+function connectorPoints(edge) {
+  const vertical = direction === 'vertical';
+  const from = anchor(edge.from, vertical ? 'bottom' : 'right');
+  const to = anchor(edge.to, vertical ? 'top' : 'left');
+  const bend = vertical ? (from.y + to.y) / 2 : (from.x + to.x) / 2;
+  return vertical ? [from, {x: from.x, y: bend}, {x: to.x, y: bend}, to]
+    : [from, {x: bend, y: from.y}, {x: bend, y: to.y}, to];
+}
+
+function drawArrowHead(points) {
+  const end = points[points.length - 1]; const previous = points[points.length - 2];
+  const angle = Math.atan2(end.y - previous.y, end.x - previous.x); const size = 8;
+  ctx.fillStyle = '#53657c'; ctx.beginPath(); ctx.moveTo(end.x, end.y);
+  ctx.lineTo(end.x - size * Math.cos(angle - Math.PI / 6), end.y - size * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(end.x - size * Math.cos(angle + Math.PI / 6), end.y - size * Math.sin(angle + Math.PI / 6)); ctx.fill();
+}
+
+function drawEdge(edge) {
+  const points = connectorPoints(edge);
+  ctx.strokeStyle = edge.branch ? '#70839c' : '#53657c'; ctx.lineWidth = edge.branch ? 1.8 : 1.5;
+  ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach(point => ctx.lineTo(point.x, point.y)); ctx.stroke(); drawArrowHead(points);
+  if (!edge.label) return;
+  const middle = points[1]; ctx.font = '600 10px sans-serif'; const text = edge.label;
+  const width = Math.min(150, ctx.measureText(text).width + 12); const x = middle.x - width / 2; const y = middle.y - 19;
+  ctx.fillStyle = '#101722'; ctx.strokeStyle = '#344257'; ctx.lineWidth = 1; roundedRect(x, y, width, 18, 5);
+  ctx.fillStyle = '#cbd7e8'; ctx.textAlign = 'center'; ctx.fillText(text, middle.x, y + 12); ctx.textAlign = 'left';
+}
+
+function drawDecision(node, color) {
+  const {x, y, w, h, step} = node; const cx = x + w / 2; const cy = y + h / 2;
+  ctx.fillStyle = '#20242c'; ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+  ctx.moveTo(cx, y); ctx.lineTo(x + w, cy); ctx.lineTo(cx, y + h); ctx.lineTo(x, cy); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = color; ctx.font = '600 9px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(`${step.displayNumber || step.number}. DECISION`, cx, cy - 24);
+  ctx.fillStyle = '#edf3ff'; ctx.font = '600 13px sans-serif';
+  wrap(step.title, w - 54).slice(0, 2).forEach((line, index) => ctx.fillText(line, cx, cy + index * 17));
+  ctx.fillStyle = '#aab8ca'; ctx.font = '10px sans-serif'; ctx.fillText(`${step.evidence.length} source ${step.evidence.length === 1 ? 'reference' : 'references'}`, cx, cy + 35);
+  ctx.textAlign = 'left';
+}
+
+function drawProcess(node, color) {
+  const {x, y, w, h, step} = node; ctx.fillStyle = '#202124'; ctx.strokeStyle = color; ctx.lineWidth = 1.5; roundedRect(x, y, w, h, 8);
+  ctx.fillStyle = color; ctx.font = '600 10px sans-serif'; ctx.fillText(`${step.displayNumber || step.number}. ${step.phase.replace('_', ' ').toUpperCase()}`, x + 13, y + 20);
+  ctx.fillStyle = '#edf3ff'; ctx.font = '600 14px sans-serif'; wrap(step.title, w - 28).forEach((line, index) => ctx.fillText(line, x + 13, y + 47 + index * 18));
+  ctx.fillStyle = '#aab8ca'; ctx.font = '10px sans-serif'; ctx.fillText(`${step.evidence.length} source ${step.evidence.length === 1 ? 'reference' : 'references'}`, x + 13, y + h - 14);
 }
 
 function draw() {
@@ -141,12 +215,10 @@ function draw() {
     ctx.fillStyle='#91a0b8';ctx.font='15px sans-serif';ctx.fillText(selected.missing_coverage || 'Workflow pending source investigation.',80,260);return;
   }
   ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.scale,view.scale);
-  edges.forEach(edge => drawArrow(edge.from,edge.to));
+  edges.forEach(drawEdge);
   shapes.forEach(shape => {
-    const {step,x,y,w,h}=shape;ctx.fillStyle='#141d2b';ctx.strokeStyle=phaseColors[step.phase]||'#67a8ff';ctx.lineWidth=2;roundedRect(x,y,w,h,12);
-    ctx.fillStyle=phaseColors[step.phase]||'#67a8ff';ctx.font='600 10px sans-serif';ctx.fillText(`${step.displayNumber || step.number}. ${step.phase.replace('_',' ').toUpperCase()}`,x+14,y+21);
-    ctx.fillStyle='#edf3ff';ctx.font='600 14px sans-serif';wrap(step.title,200).forEach((line,index)=>ctx.fillText(line,x+14,y+48+index*18));
-    ctx.fillStyle='#91a0b8';ctx.font='11px sans-serif';ctx.fillText(`${step.evidence.length} source ${step.evidence.length===1?'reference':'references'}`,x+14,y+h-14);
+    const color = phaseColors[shape.step.phase] || '#67a8ff';
+    if (shape.kind === 'decision') drawDecision(shape, color); else drawProcess(shape, color);
   });ctx.restore();
 }
 
@@ -172,6 +244,12 @@ function canvasPoint(event) {
   const box=canvas.getBoundingClientRect();return {x:(event.clientX-box.left-view.x)/view.scale,y:(event.clientY-box.top-view.y)/view.scale};
 }
 
+function contains(shape, point) {
+  if (shape.kind !== 'decision') return point.x >= shape.x && point.x <= shape.x + shape.w && point.y >= shape.y && point.y <= shape.y + shape.h;
+  const cx = shape.x + shape.w / 2; const cy = shape.y + shape.h / 2;
+  return Math.abs(point.x - cx) / (shape.w / 2) + Math.abs(point.y - cy) / (shape.h / 2) <= 1;
+}
+
 function showDetail(step) {
   const panel=document.getElementById('detail');panel.hidden=false;
   document.getElementById('detail-phase').textContent=step.phase.replace('_',' ');
@@ -185,10 +263,10 @@ function showDetail(step) {
 
 canvas.addEventListener('pointerdown',event=>{dragging=true;pointer={x:event.clientX,y:event.clientY};dragStart={...pointer};canvas.setPointerCapture(event.pointerId)});
 canvas.addEventListener('pointermove',event=>{if(!dragging)return;view.x+=event.clientX-pointer.x;view.y+=event.clientY-pointer.y;pointer={x:event.clientX,y:event.clientY};draw()});
-canvas.addEventListener('pointerup',event=>{const moved=Math.hypot(event.clientX-dragStart.x,event.clientY-dragStart.y);dragging=false;if(moved<4){const p=canvasPoint(event);const hit=shapes.find(s=>p.x>=s.x&&p.x<=s.x+s.w&&p.y>=s.y&&p.y<=s.y+s.h);if(hit)showDetail(hit.step)}});
+canvas.addEventListener('pointerup',event=>{const moved=Math.hypot(event.clientX-dragStart.x,event.clientY-dragStart.y);dragging=false;if(moved<4){const p=canvasPoint(event);const hit=shapes.find(shape=>contains(shape,p));if(hit)showDetail(hit.step)}});
 canvas.addEventListener('wheel',event=>{event.preventDefault();view.scale=Math.max(.3,Math.min(2,view.scale*(event.deltaY<0?1.1:.9)));document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;draw()},{passive:false});
-document.getElementById('zoom-in').onclick=()=>{view.scale=Math.min(2,view.scale*1.15);draw()};
-document.getElementById('zoom-out').onclick=()=>{view.scale=Math.max(.3,view.scale/1.15);draw()};
+document.getElementById('zoom-in').onclick=()=>{view.scale=Math.min(2,view.scale*1.15);document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;draw()};
+document.getElementById('zoom-out').onclick=()=>{view.scale=Math.max(.3,view.scale/1.15);document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;draw()};
 document.getElementById('fit').onclick=()=>{fitWorkflow();draw()};
 function setDirection(nextDirection) {
   direction = nextDirection;

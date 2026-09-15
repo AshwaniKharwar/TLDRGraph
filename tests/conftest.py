@@ -14,29 +14,35 @@ def source_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def complete_response(root: Path, source_hash: str):
+def complete_catalog(root: Path, source_hash: str):
     evidence = {"file": "app.py", "symbol": "run", "line": 4,
                 "code_start": 4, "code_end": 5}
+    feature = {
+        "id": "run_application", "area_id": "runtime", "title": "Run application",
+        "audience": "developer", "summary": "Run the application and return its result.",
+        "workflow_path": ".tldrgraph/workflows/run_application.yaml",
+    }
+    workflow = {
+        "schema": "tldrgraph/feature-workflow@4", "source_hash": source_hash,
+        "generator": "feature-workflow-subagent@4", "feature_id": "run_application",
+        "title": feature["title"], "summary": "Application execution.", "status": "generated",
+        "missing_coverage": "", "evidence": [evidence],
+        "steps": [
+            {"number": 1, "phase": "backend", "title": "Start",
+             "text": "The runtime starts execution.", "evidence": [evidence]},
+            {"number": 2, "phase": "backend", "title": "Run",
+             "text": "The function performs its work.", "evidence": [evidence]},
+            {"number": 3, "phase": "response", "title": "Return",
+             "text": "The result is returned.", "evidence": [evidence]},
+        ],
+    }
     return {
-        "schema": "tldrgraph/feature-workflows-response@3",
+        "schema": "tldrgraph/features@4", "generator": "feature-catalog-agent@4",
         "source_hash": source_hash,
         "areas": [{"id": "runtime", "title": "Runtime", "summary": "Runtime behavior.",
                    "perspective": "technical", "order": 0}],
-        "features": [{
-            "id": "run_application", "area_id": "runtime", "title": "Run application",
-            "audience": "developer", "summary": "Run the application and return its result.",
-            "evidence": [evidence],
-            "workflow": {"status": "generated", "summary": "Application execution.",
-                         "steps": [
-                             {"number": 1, "phase": "backend", "title": "Start",
-                              "text": "The runtime starts execution.", "evidence": [evidence]},
-                             {"number": 2, "phase": "backend", "title": "Run",
-                              "text": "The function performs its work.", "evidence": [evidence]},
-                             {"number": 3, "phase": "response", "title": "Return",
-                              "text": "The result is returned.", "evidence": [evidence]},
-                         ]},
-        }],
-    }
+        "features": [feature],
+    }, {"run_application": workflow}
 
 
 @pytest.fixture

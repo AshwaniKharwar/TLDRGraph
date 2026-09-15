@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tldrgraph"
-version = "0.3.0"
+version = "0.3.1"
 description = "Generate and explore source-backed feature workflows with your coding agent."
 readme = "README.md"
 license = "MIT"

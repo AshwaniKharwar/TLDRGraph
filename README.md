@@ -6,8 +6,8 @@ product and technical capabilities, and records every displayed step with file,
 symbol, and line-range evidence.
 
 TLDRGraph does not run an AI process itself and does not infer workflows from a
-static graph. It coordinates a transparent file handshake with the coding agent
-that already has your repository open.
+static graph. It coordinates direct catalog and workflow artifacts with the
+coding agent that already has your repository open.
 
 ## Install
 
@@ -23,10 +23,11 @@ Run this inside a supported coding-agent session:
 tldrgraph init
 ```
 
-When `init` reports `needs_feature_workflows`, the installed agent workflow reads
-`.tldrgraph/feature_workflows_request.yaml`, delegates repository inspection to a
-source-reading subagent, and writes `.tldrgraph/feature_workflows_response.yaml`.
-Run `tldrgraph init` again to validate and apply the response.
+When `init` reports `needs_feature_workflows`, it includes the current source
+hash. The active agent identifies feature outcomes and immediately writes the v4
+`.tldrgraph/features.yaml` index. It delegates one indexed feature to each
+source-reading subagent; each worker writes only its own v4 workflow file. Run
+`tldrgraph init` again to validate the artifacts and generate the explorer.
 
 The final artifacts are:
 

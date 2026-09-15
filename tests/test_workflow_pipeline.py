@@ -1,9 +1,8 @@
 import json
 
-import yaml
 from click.testing import CliRunner
 
-from conftest import complete_response
+from conftest import complete_catalog
 from tldrgraph.cli import cli
 from tldrgraph.cli_pipeline import init_pipeline
 from tldrgraph.feature_workflow_loader import load_feature_manifest
@@ -11,48 +10,71 @@ from tldrgraph.payload import atomic_write
 from tldrgraph.source_inventory import build_source_inventory
 
 
-def test_two_run_handoff_and_unchanged_source(source_repo):
-    first = init_pipeline(str(source_repo), as_json=True)
-    assert first == "needs_feature_workflows"
-    request = yaml.safe_load((source_repo / ".tldrgraph/feature_workflows_request.yaml").read_text())
-    assert request["schema"] == "tldrgraph/feature-workflows-request@3"
-    assert "investigation_leads" not in request
-    response = complete_response(source_repo, request["source_hash"])
-    atomic_write(str(source_repo / ".tldrgraph/feature_workflows_response.yaml"), response)
+def _write_catalog(root, source_hash):
+    manifest, workflows = complete_catalog(root, source_hash)
+    state = root / ".tldrgraph"
+    (state / "workflows").mkdir(parents=True, exist_ok=True)
+    atomic_write(str(state / "features.yaml"), manifest)
+    for feature_id, workflow in workflows.items():
+        atomic_write(str(state / "workflows" / f"{feature_id}.yaml"), workflow)
+
+
+def _write_index(root, source_hash):
+    manifest, _ = complete_catalog(root, source_hash)
+    state = root / ".tldrgraph"
+    state.mkdir(parents=True, exist_ok=True)
+    atomic_write(str(state / "features.yaml"), manifest)
+
+
+def test_direct_artifacts_and_unchanged_source(source_repo):
+    assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
+    state = source_repo / ".tldrgraph"
+    assert not (state / "feature_workflows_request.yaml").exists()
+    assert not (state / "feature_workflows_response.yaml").exists()
+
+    inventory = build_source_inventory(str(source_repo))
+    _write_catalog(source_repo, inventory["source_hash"])
     assert init_pipeline(str(source_repo), as_json=True) == "done"
-    assert (source_repo / ".tldrgraph/TLDRGRAPH_VISUALIZER.html").is_file()
+    assert (state / "TLDRGRAPH_VISUALIZER.html").is_file()
     assert init_pipeline(str(source_repo), as_json=True) == "done"
 
 
 def test_completed_init_does_not_request_ui_server(source_repo, capsys):
     assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
-    request = yaml.safe_load((source_repo / ".tldrgraph/feature_workflows_request.yaml").read_text())
-    atomic_write(
-        str(source_repo / ".tldrgraph/feature_workflows_response.yaml"),
-        complete_response(source_repo, request["source_hash"]),
-    )
-
+    inventory = build_source_inventory(str(source_repo))
+    _write_catalog(source_repo, inventory["source_hash"])
     assert init_pipeline(str(source_repo)) == "done"
     assert "ui --serve" not in capsys.readouterr().out
 
 
-def test_changed_source_requests_regeneration(source_repo):
+def test_catalog_index_is_accepted_before_its_worker_writes_a_workflow(source_repo, capsys):
+    assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
+    capsys.readouterr()
     inventory = build_source_inventory(str(source_repo))
-    payload = complete_response(source_repo, inventory["source_hash"])
-    atomic_write(str(source_repo / ".tldrgraph/feature_workflows_response.yaml"), payload)
-    init_pipeline(str(source_repo), as_json=True)
+    _write_index(source_repo, inventory["source_hash"])
+    assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
+    output = json.loads(capsys.readouterr().out)
+    assert "workflow file is missing or invalid for run_application" in " ".join(output["next_action"])
+
+
+def test_changed_source_requests_regeneration(source_repo):
+    assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
+    inventory = build_source_inventory(str(source_repo))
+    _write_catalog(source_repo, inventory["source_hash"])
+    assert init_pipeline(str(source_repo), as_json=True) == "done"
     (source_repo / "app.py").write_text("def changed():\n    return True\n", encoding="utf-8")
     assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
 
 
-def test_invalid_response_is_preserved_and_reported(source_repo):
+def test_invalid_direct_artifacts_are_reported_without_handshake_files(source_repo, capsys):
     state = source_repo / ".tldrgraph"
     state.mkdir()
-    atomic_write(str(state / "feature_workflows_response.yaml"), {"schema": "old"})
+    atomic_write(str(state / "features.yaml"), {"schema": "old"})
     assert init_pipeline(str(source_repo), as_json=True) == "needs_feature_workflows"
-    assert (state / "feature_workflows_response.yaml").exists()
-    request = yaml.safe_load((state / "feature_workflows_request.yaml").read_text())
-    assert "response schema must be" in request["previous_response_error"]
+    output = json.loads(capsys.readouterr().out)
+    assert "features schema must be" in " ".join(output["next_action"])
+    assert not (state / "feature_workflows_request.yaml").exists()
+    assert not (state / "feature_workflows_response.yaml").exists()
 
 
 def test_v2_manifest_is_rejected_with_regeneration_message(source_repo):
@@ -64,11 +86,21 @@ def test_v2_manifest_is_rejected_with_regeneration_message(source_repo):
     assert "regenerate" in status
 
 
+def test_v3_manifest_is_rejected_with_v4_regeneration_message(source_repo):
+    state = source_repo / ".tldrgraph"
+    state.mkdir()
+    atomic_write(str(state / "features.yaml"), {"schema": "tldrgraph/features@3", "features": []})
+    manifest, status = load_feature_manifest(str(source_repo), "hash")
+    assert manifest is None
+    assert "v3" in status
+
+
 def test_json_status_is_machine_readable(source_repo, capsys):
     init_pipeline(str(source_repo), as_json=True)
     output = json.loads(capsys.readouterr().out)
     assert output["status"] == "needs_feature_workflows"
     assert output["progress"]["source_files"] > 0
+    assert output["progress"]["source_hash"]
 
 
 def test_only_three_cli_commands_are_exposed():

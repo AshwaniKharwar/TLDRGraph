@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Iterable, List
 
-WORKFLOW_SCHEMA = "tldrgraph/feature-workflow@3"
+WORKFLOW_SCHEMA = "tldrgraph/feature-workflow@4"
 ALLOWED_PHASES = {
     "user_action", "frontend", "request", "backend", "persistence",
     "external", "response", "ui_update",

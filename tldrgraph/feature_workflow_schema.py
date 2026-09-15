@@ -1,4 +1,4 @@
-"""Graph-free v3 response normalization for source-backed workflows."""
+"""Validation for direct v4 catalog indexes and feature-owned workflows."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Tuple
 
 from .feature_workflow_validation import WORKFLOW_SCHEMA, validate_workflow
 
-RESPONSE_SCHEMA = "tldrgraph/feature-workflows-response@3"
-FEATURE_SCHEMA = "tldrgraph/features@3"
+FEATURE_SCHEMA = "tldrgraph/features@4"
+CATALOG_GENERATOR = "feature-catalog-agent@4"
+WORKFLOW_GENERATOR = "feature-workflow-subagent@4"
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
 PERSPECTIVES = {"product", "technical"}
 AUDIENCES = {"user", "admin", "developer", "operator"}
@@ -140,55 +141,82 @@ def _metadata(raw: Any, area_ids: set[str], used_ids: set[str]) -> Tuple[str, st
     return values
 
 
-def _normalize_feature(root: str, current_hash: str, raw: Dict[str, Any],
-                       area_ids: set[str], used_ids: set[str],
-                       known_files: set[str]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    feature_id, area_id, title, summary, audience = _metadata(raw, area_ids, used_ids)
-    evidence = _evidence_list(root, raw.get("evidence"), known_files)
-    source = raw.get("workflow")
-    if not isinstance(source, dict) or source.get("status") not in STATUSES:
-        raise ValueError(f"feature {feature_id} requires a supported workflow")
-    status = source["status"]
+def validate_catalog_index(current_hash: str, manifest: Any) -> Dict[str, Any]:
+    """Validate the main-agent-owned feature index before workers create workflows."""
+    if not isinstance(manifest, dict) or manifest.get("schema") != FEATURE_SCHEMA:
+        raise ValueError(f"features schema must be {FEATURE_SCHEMA}")
+    if manifest.get("source_hash") != current_hash:
+        raise ValueError("features source_hash does not match the current repository")
+    if manifest.get("generator") != CATALOG_GENERATOR:
+        raise ValueError(f"features generator must be {CATALOG_GENERATOR}")
+    areas = _normalize_areas(manifest.get("areas"))
+    raw_features = manifest.get("features")
+    if not isinstance(raw_features, list) or not raw_features:
+        raise ValueError("features must contain at least one feature")
+    area_ids, used_ids = {item["id"] for item in areas}, set()
+    features = []
+    for raw in raw_features:
+        feature_id, area_id, title, summary, audience = _metadata(raw, area_ids, used_ids)
+        feature = {
+            "id": feature_id, "area_id": area_id, "title": title, "audience": audience,
+            "summary": summary, "workflow_path": f".tldrgraph/workflows/{feature_id}.yaml",
+        }
+        if raw != feature:
+            raise ValueError(f"feature {feature_id} is not in canonical catalog-index form")
+        features.append(feature)
+    return {"schema": FEATURE_SCHEMA, "source_hash": current_hash,
+            "generator": CATALOG_GENERATOR, "areas": areas, "features": features}
+
+
+def _normalize_workflow(root: str, current_hash: str, feature: Dict[str, Any],
+                        source: Any, known_files: set[str]) -> Dict[str, Any]:
+    feature_id = feature["id"]
+    if not isinstance(source, dict):
+        raise ValueError(f"workflow file is missing or invalid for {feature_id}")
+    if source.get("schema") != WORKFLOW_SCHEMA:
+        raise ValueError(f"workflow {feature_id} has an unsupported schema")
+    if source.get("source_hash") != current_hash:
+        raise ValueError(f"workflow {feature_id} source_hash does not match the current repository")
+    if source.get("generator") != WORKFLOW_GENERATOR:
+        raise ValueError(f"workflow {feature_id} generator must be {WORKFLOW_GENERATOR}")
+    status = source.get("status")
+    if source.get("feature_id") != feature_id or source.get("title") != feature["title"]:
+        raise ValueError(f"workflow {feature_id} does not match its feature identity")
+    summary = str(source.get("summary") or "").strip()
     missing = str(source.get("missing_coverage") or "").strip()
-    if status in {"partial", "pending"} and not missing:
-        raise ValueError(f"feature {feature_id} requires missing_coverage")
+    if not summary:
+        raise ValueError(f"workflow {feature_id} requires a summary")
+    if status not in STATUSES or (status in {"partial", "pending"} and not missing):
+        raise ValueError(f"workflow {feature_id} has an unsupported status")
     workflow = {
         "schema": WORKFLOW_SCHEMA, "source_hash": current_hash,
-        "generator": "feature-workflow-subagent@3", "feature_id": feature_id,
-        "title": title, "summary": str(source.get("summary") or summary).strip(),
-        "status": status, "missing_coverage": missing, "evidence": evidence,
+        "generator": WORKFLOW_GENERATOR, "feature_id": feature_id,
+        "title": feature["title"], "summary": summary, "status": status,
+        "missing_coverage": missing,
+        "evidence": _evidence_list(root, source.get("evidence"), known_files),
         "steps": _normalize_steps(root, source.get("steps"), status, known_files),
     }
     if not validate_workflow(workflow):
-        raise ValueError(f"feature {feature_id} has an incomplete or invalid workflow")
-    feature = {
-        "id": feature_id, "area_id": area_id, "title": title, "audience": audience,
-        "summary": summary, "status": status,
-        "workflow_path": f".tldrgraph/workflows/{feature_id}.yaml", "evidence": evidence,
-    }
-    return feature, workflow
+        raise ValueError(f"workflow {feature_id} is incomplete or invalid")
+    if source != workflow:
+        raise ValueError(f"workflow {feature_id} is not in canonical workflow form")
+    return workflow
 
 
-def normalize_response(root: str, current_hash: str,
-                       files: List[Dict[str, Any]], payload: Any):
-    if not isinstance(payload, dict) or payload.get("schema") != RESPONSE_SCHEMA:
-        raise ValueError(f"response schema must be {RESPONSE_SCHEMA}")
-    if payload.get("source_hash") != current_hash:
-        raise ValueError("response source_hash does not match the current repository")
-    areas = _normalize_areas(payload.get("areas"))
-    raw_features = payload.get("features")
-    if not isinstance(raw_features, list) or not raw_features:
-        raise ValueError("response must contain at least one feature")
+def validate_catalog_artifacts(root: str, current_hash: str,
+                               files: List[Dict[str, Any]], manifest: Any,
+                               workflow_payloads: Dict[str, Any]):
+    """Validate the catalog index and every independently authored workflow."""
+    catalog = validate_catalog_index(current_hash, manifest)
     known_files = {str(item["path"]) for item in files}
-    area_ids, used_ids = {item["id"] for item in areas}, set()
-    features, workflows = [], {}
-    for raw in raw_features:
-        feature, workflow = _normalize_feature(
-            root, current_hash, raw, area_ids, used_ids, known_files
-        )
-        features.append(feature); workflows[feature["id"]] = workflow
-    manifest = {
-        "schema": FEATURE_SCHEMA, "source_hash": current_hash,
-        "generator": "feature-catalog-subagent@3", "areas": areas, "features": features,
-    }
-    return manifest, workflows
+    workflows, errors = {}, []
+    for feature in catalog["features"]:
+        try:
+            workflows[feature["id"]] = _normalize_workflow(
+                root, current_hash, feature, workflow_payloads.get(feature["id"]), known_files,
+            )
+        except ValueError as error:
+            errors.append(str(error))
+    if errors:
+        raise ValueError("; ".join(errors))
+    return catalog, workflows
