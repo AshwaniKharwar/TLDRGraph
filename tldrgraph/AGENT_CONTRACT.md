@@ -5,19 +5,11 @@ not construct an architecture graph and does not launch an AI process itself.
 
 ## Initialization handshake
 
-Run `tldrgraph init`. A missing or stale catalog produces:
-
-```text
-.tldrgraph/feature_workflows_request.yaml
-```
-
-The coding agent must delegate that complete request to a source-reading
-subagent. The subagent writes the requested
-`tldrgraph/feature-workflows-response@3` document to:
-
-```text
-.tldrgraph/feature_workflows_response.yaml
-```
+Run `tldrgraph init`. A missing or stale catalog produces
+`.tldrgraph/feature_workflows_request.yaml`. Delegate that complete request to a
+source-reading subagent. The subagent writes the requested
+`tldrgraph/feature-workflows-response@3` document to
+`.tldrgraph/feature_workflows_response.yaml`.
 
 Run `tldrgraph init` again. TLDRGraph validates the response against the current
 source inventory and atomically writes `.tldrgraph/features.yaml` plus one file
@@ -25,8 +17,7 @@ per capability under `.tldrgraph/workflows/`.
 
 ## Evidence
 
-Every feature and every displayed workflow step must have at least one evidence
-record:
+Every feature and every displayed workflow step must have evidence shaped as:
 
 ```yaml
 file: relative/path/to/source.py
@@ -52,5 +43,4 @@ Line ranges must exist in the current file. Never invent evidence.
   backend work, response, and UI update when those stages exist.
 
 The request contains the exact response shape and current `source_hash`. Copy the
-hash verbatim. Continue the handshake until `tldrgraph init` reports `done`, then
-run `tldrgraph ui --serve`.
+hash verbatim. Continue until `tldrgraph init` reports `done`.

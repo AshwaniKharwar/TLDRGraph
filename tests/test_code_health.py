@@ -1,6 +1,15 @@
-from scripts.check_code_health import check_file
 import glob
+import importlib.util
 import os
+
+
+spec = importlib.util.spec_from_file_location(
+    "check_code_health", os.path.join(os.path.dirname(__file__), "..", "scripts", "check_code_health.py")
+)
+module = importlib.util.module_from_spec(spec)
+assert spec and spec.loader
+spec.loader.exec_module(module)
+check_file = module.check_file
 
 
 def test_tldrgraph_code_health():

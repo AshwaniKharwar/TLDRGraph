@@ -1,5 +1,5 @@
 site_name: TLDRGraph
-site_description: "Dynamic Multi-Layer Code Flow, Instant Semantic Call Tracing, and Interactive Architectural Navigation."
+site_description: "Source-backed feature workflows generated with your coding agent."
 site_author: Vikrant Dubey
 site_url: https://vikrantd.github.io/TLDRGraph/
 repo_url: https://github.com/vikrantd/TLDRGraph
@@ -79,20 +79,9 @@ nav:
   - Getting Started:
       - Installation: getting-started/installation.md
       - Quickstart: getting-started/quickstart.md
-  - Concepts:
-      - Agent-Designed Layers: concepts/dynamic-layers.md
-      - Seams & Route Extraction: concepts/seams-and-routes.md
-      - Zero-Token Hash Gating: concepts/hash-gating.md
-      - Hybrid Vector Retrieval: concepts/vector-retrieval.md
-  - Interactive Visualizer:
-      - Architecture Map: visualizer/architecture-map.md
-      - Workflows Explorer: visualizer/workflows-explorer.md
+  - Workflow Explorer: visualizer/workflows-explorer.md
   - CLI Reference:
-      - Init, Scan & Enrich: cli-reference/init-and-scan.md
-      - Query & Trace: cli-reference/query-and-trace.md
-      - Analysis & Dead Code: cli-reference/analysis-tools.md
-  - Benchmarks:
-      - SWE-bench Lite Leaderboard: benchmarks/swe-bench.md
+      - Commands: cli-reference/workflow-explorer.md
   - Agent Integration:
       - Supported Coding Agents: agents/integrations.md
       - Agent Contract Specification: agents/contract-spec.md
