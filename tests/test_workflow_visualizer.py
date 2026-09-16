@@ -79,3 +79,12 @@ def test_generated_html_uses_vertical_flowchart_renderer(source_repo):
     assert "function buildVerticalGroups" in html
     assert "function contains(shape, point)" in html
     assert 'id="direction-vertical" class="active"' in html
+
+
+def test_generated_html_starts_workflows_below_the_header_at_fifty_percent(source_repo):
+    _apply(source_repo)
+    html = open(generate_visualizer_html(str(source_repo)), encoding="utf-8").read()
+    assert "const DEFAULT_ZOOM = 0.5" in html
+    assert "function resetWorkflowView()" in html
+    assert "const protectedTop = Math.max(170, headerBox.bottom - box.top + 32)" in html
+    assert '<span id="zoom-label">50%</span>' in html

@@ -6,7 +6,8 @@ const phaseColors = {user_action:'#67a8ff',frontend:'#8a9cff',request:'#c68aff',
 let selected = null;
 let shapes = [];
 let edges = [];
-let view = {x:80,y:210,scale:1};
+const DEFAULT_ZOOM = 0.5;
+let view = {x:80,y:210,scale:DEFAULT_ZOOM};
 let dragging = false;
 let pointer = null;
 let dragStart = null;
@@ -68,7 +69,7 @@ function selectWorkflow(id) {
   refs.innerHTML = selected ? (selected.evidence || []).map((item,index)=>`<button data-header-evidence="${index}">${escapeHtml(item.symbol)}</button>`).join('') : '';
   refs.querySelectorAll('[data-header-evidence]').forEach(button=>button.addEventListener('click',()=>openEvidence(selected.evidence[Number(button.dataset.headerEvidence)])));
   document.getElementById('detail').hidden = true;
-  fitWorkflow(); renderCatalog(); draw();
+  resetWorkflowView(); renderCatalog(); draw();
 }
 
 function resize() {
@@ -237,6 +238,19 @@ function fitWorkflow() {
   view.scale = Math.min(1.15, Math.max(.3, Math.min(availableWidth / width, availableHeight / height)));
   view.x = (box.width - width * view.scale) / 2 - minX * view.scale;
   view.y = top + (availableHeight - height * view.scale) / 2 - minY * view.scale;
+  document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;
+}
+
+function resetWorkflowView() {
+  buildShapes();
+  if (!shapes.length) return;
+  const first = shapes[0];
+  const box = canvas.getBoundingClientRect();
+  const headerBox = document.getElementById('workflow-header').getBoundingClientRect();
+  const protectedTop = Math.max(170, headerBox.bottom - box.top + 32);
+  view.scale = DEFAULT_ZOOM;
+  view.x = box.width / 2 - (first.x + first.w / 2) * view.scale;
+  view.y = protectedTop - first.y * view.scale;
   document.getElementById('zoom-label').textContent=`${Math.round(view.scale*100)}%`;
 }
 
