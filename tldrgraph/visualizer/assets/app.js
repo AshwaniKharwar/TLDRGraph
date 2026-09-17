@@ -2,7 +2,8 @@
 
 const canvas = document.getElementById('workflow-canvas');
 const ctx = canvas.getContext('2d');
-const phaseColors = {user_action:'#67a8ff',frontend:'#8a9cff',request:'#c68aff',backend:'#56dfcc',persistence:'#7bd879',external:'#ffca6a',response:'#ff9b73',ui_update:'#ff88ba'};
+// Keep workflow nodes visually neutral; phase labels and node shapes carry the meaning.
+const workflowColor = '#aeb8c9';
 let selected = null;
 let shapes = [];
 let edges = [];
@@ -218,8 +219,7 @@ function draw() {
   ctx.save();ctx.translate(view.x,view.y);ctx.scale(view.scale,view.scale);
   edges.forEach(drawEdge);
   shapes.forEach(shape => {
-    const color = phaseColors[shape.step.phase] || '#67a8ff';
-    if (shape.kind === 'decision') drawDecision(shape, color); else drawProcess(shape, color);
+    if (shape.kind === 'decision') drawDecision(shape, workflowColor); else drawProcess(shape, workflowColor);
   });ctx.restore();
 }
 
