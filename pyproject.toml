@@ -4,37 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tldrgraph"
-version = "0.2.0"
-description = "See the flow of your spaghetti code, VibeCoders. Instant multi-layer architecture & semantic call tracing."
+version = "0.3.1"
+description = "Generate and explore source-backed feature workflows with your coding agent."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 dependencies = [
     "click>=8.0",
     "pyyaml>=6.0",
-    "networkx>=3.0",
-    "tabulate>=0.9.0",
-    "graphifyy>=0.9.0",
-    "tree-sitter>=0.21",
-    "tree-sitter-javascript>=0.21",
-    "tree-sitter-typescript>=0.21",
-    "fastembed>=0.3",
-    "numpy>=1.24",
 ]
 
 [project.optional-dependencies]
-embeddings = [
-    "fastembed>=0.3",
-    "numpy>=1.24",
-]
 docs = [
     "mkdocs-material>=9.5.0",
     "mkdocs-minify-plugin>=0.8.0",
@@ -56,4 +43,5 @@ where = ["."]
 include = ["tldrgraph*"]
 
 [tool.setuptools.package-data]
+"tldrgraph" = ["AGENT_CONTRACT.md"]
 "tldrgraph.visualizer" = ["assets/*.html", "assets/*.css", "assets/*.js"]

@@ -1,64 +1,29 @@
 <!-- BEGIN TLDRGRAPH -->
 ## TLDRGraph
 
-This repository is mapped into architectural layers designed from its own source,
-with per-symbol intents you can search and trace.
+TLDRGraph builds a source-backed feature and workflow catalog for this repository.
+It does not build an architecture graph, infer workflows heuristically, or run AI itself.
 
-### ⛔ FORBIDDEN TOOL BEHAVIORS
-- **DO NOT use `grep_search`, `ripgrep`, or `find_by_name` as your primary discovery tool.** Blind text searching is strictly prohibited for codebase exploration, feature lookup, and understanding component flows.
-- **DO NOT guess symbol locations or execution paths.**
+Run `tldrgraph init` to create a catalog. Run `tldrgraph refresh` when an
+existing catalog needs updating after source changes. If either command returns
+`needs_feature_workflows`, identify feature outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
+with the reported `source_hash`. Then spawn one fresh source-reading subagent
+for each indexed feature. Each worker writes only its assigned complete
+`.tldrgraph/workflows/<feature_id>.yaml` v4 file; it never edits `features.yaml`
+or another feature's workflow. Run the same command again to validate the direct
+artifacts and generate the explorer.
 
-### ✅ MANDATORY FIRST-STEP PROTOCOL
-Whenever the user asks where a feature lives, how a component works, or what a symbol connects to, your first tool call MUST be `run_command` with one of the following:
+Every capability and workflow step must cite a verified repository-relative
+file, symbol, and line range. Define capabilities as user, admin, developer, or
+operator outcomes. Use `generated` only for a proven end-to-end journey,
+`partial` with `missing_coverage` for a proven fragment, and `pending` with no
+steps when no reliable sequence can be established.
 
-```bash
-tldrgraph query "<feature in plain English>"   # semantic search + end-to-end flow
-tldrgraph trace "<Source>" "<Target>"          # exact path between two symbols
-tldrgraph layers                               # node counts per layer
-tldrgraph dead-code                            # review candidates, never a delete list
-```
+Model each feature as a directly renderable flowchart: initiating action,
+proven process steps, decision branches, joined continuation, and final result.
+When a workflow step has mutually exclusive paths, modes, or choices, make the
+step the decision node and represent each labeled, evidence-backed branch as a
+step `options` entry that rejoins the following proven step.
 
-**Discovery Pattern**:
-1. Run `tldrgraph query "<query>"` or `tldrgraph trace "<from>" "<to>"` to identify the exact file, layer, and line range.
-2. Use `view_file` on the target file path returned by TLDRGraph to inspect the code.
-
-Those are read-only and never trigger enrichment.
-
-**To build or refresh the graph**, run `tldrgraph init`. In a detected coding-agent
-session, plain `tldrgraph init` auto-approves the full enrichment campaign; normal
-terminal users and non-agent automation still get confirmation. It handles layer
-design, extraction, source-aware enrichment in 200-node batches, LLM route links,
-and dense embeddings. If it prints a `NEXT ACTION` fallback, follow that handoff.
-
-### ✅ TLDRGraph Init Completion Contract
-After a full TLDRGraph enrichment run is approved or auto-approved, the agent MUST
-keep working until `tldrgraph init` reports `status: done` or a genuine blocking
-error requires user action.
-
-- `needs_enrichment`, "nodes remaining", "batches remaining", and "NEXT ACTION"
-  are continuation states, not completion states.
-- Do not end with a progress-only summary such as "I enriched 400 nodes and
-  1,438 remain" unless a blocking error prevents continuation.
-- After each enrichment response is written, immediately run `tldrgraph init`
-  again and repeat the loop.
-- If `status: needs_llm_links` appears, read `.tldrgraph/llm_links_request.yaml`,
-  open the referenced frontend/backend source files, and write
-  `.tldrgraph/llm_links_response.yaml` with evidence-backed
-  `{source, target, confidence, frontend_evidence, backend_evidence, explanation}`
-  entries before running `tldrgraph init` again.
-- If nested-agent protection prevents launching another CLI agent, the current
-  agent is responsible for processing the batch manually.
-- Final responses may summarize progress only after `status: done`, embeddings
-  are completed or explicitly unavailable, or the exact blocker is reported.
-
-Full workflow: `.claude/commands/tldrgraph-init.md` (identical copies live in every
-other agent directory). Schema: `.tldrgraph/AGENT_CONTRACT.md`.
-
-`tldrgraph dead-code` lists **review candidates, not confirmed dead code**.
-`unreviewed` means "not enough evidence to conclude" and is never removable.
-
-## Code Quality & Architectural Standards
-- **File Length Limit**: Every source file in `tldrgraph/` must be strictly under 400 lines. Split large modules into cohesive sub-units.
-- **Function Complexity**: Functions and methods must be focused (<= 50 lines) with low cyclomatic complexity (<= 15).
-- **Modularity & Re-exports**: Keep modules decoupled; preserve backwards compatibility with top-level package re-exports.
+The full schema is in `.tldrgraph/AGENT_CONTRACT.md`.
 <!-- END TLDRGRAPH -->

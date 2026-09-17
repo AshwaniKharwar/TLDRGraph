@@ -1,243 +1,62 @@
-<p align="center">
-  <img src="assets/tldrgraph_logo.svg" alt="TLDRGraph Logo" width="380" />
-</p>
+# TLDRGraph
 
-<h1 align="center">TLDRGraph 🌐</h1>
+TLDRGraph turns a repository into a source-backed feature catalog and interactive
+Workflow Explorer. Your coding agent reads the repository, identifies meaningful
+product and technical capabilities, and records every displayed step with file,
+symbol, and line-range evidence.
 
-<p align="center">
-  <strong>See the flow of your spaghetti code, VibeCoders.</strong> 🍝➡️⚡<br>
-  <em>Dynamic Multi-Layer Code Flow, Instant Semantic Call Tracing, and Interactive Architectural Navigation.</em>
-</p>
+TLDRGraph does not run an AI process itself and does not infer workflows from a
+static graph. It coordinates direct catalog and workflow artifacts with the
+coding agent that already has your repository open.
 
-<p align="center">
-  <a href="https://pypi.org/project/tldrgraph/"><img src="https://img.shields.io/badge/pypi-v0.2.0-3775A9.svg?logo=pypi&logoColor=white" alt="PyPI version"></a>
-  <a href="https://vikrantd.github.io/TLDRGraph/"><img src="https://img.shields.io/badge/docs-GitHub%20Pages-blue.svg?logo=materialformkdocs&logoColor=white" alt="Documentation"></a>
-  <a href="https://pypi.org/project/tldrgraph/"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-3776AB.svg?logo=python&logoColor=white" alt="Python versions"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-  <a href="https://github.com/safishamsi/graphify"><img src="https://img.shields.io/badge/AST%20Engine-Graphify-emerald.svg" alt="Powered by Graphify"></a>
-</p>
+## Install
 
----
-
-## 💡 What is TLDRGraph?
-
-Modern codebases are messy. Microservices, multi-layer abstractions, dynamic API routes, and ORM calls create cognitive overload.
-
-**TLDRGraph** cuts through the noise. It dynamically classifies your repository into tailored architectural layers, extracts cross-layer execution seams, tracks changes using zero-token SHA-256 hash gating, and provides both **CLI flow tables** and a **lightning-fast standalone visualizer**.
-
-📖 **Read the full documentation**: [https://vikrantd.github.io/TLDRGraph/](https://vikrantd.github.io/TLDRGraph/)
-
-
----
-
-## 🗺️ Interactive Visual Architecture & Flow Navigation
-
-TLDRGraph compiles a zero-dependency, self-contained interactive visualizer (`.tldrgraph/TLDRGRAPH_VISUALIZER.html`) that maps your entire codebase into structured architectural layers and clear end-to-end execution flows:
-
-### 1. Architecture Map (Multi-Layer Clustered Navigation)
-> *Zoom out to inspect high-level module architecture across dynamic layers; zoom in to examine function signatures, callers, and callees with cross-layer connection lines.*
-
-<p align="center">
-  <img src="assets/architecture_map.png" alt="TLDRGraph Architecture Map" width="100%" />
-</p>
-
-### 2. Workflows Explorer (End-to-End Execution & Decision Flows)
-> *Follow step-by-step execution journeys with sequential flow lines, decision branches, participating symbols, and cross-layer transitions.*
-
-<p align="center">
-  <img src="assets/workflows_explorer.png" alt="TLDRGraph Workflows Explorer" width="100%" />
-</p>
-
----
-
-## 🏛️ Agent-Designed Architectural Layers
-
-TLDRGraph does not pick your architecture from a menu, and **it ships no layer
-templates at all**. On the first run it hands the repository to your coding agent
-— with the symbols it just extracted, not merely a directory listing — and the
-layer set the agent designs is written to `.tldrgraph/layers.config.yaml`, named
-after your codebase's own concepts.
-
-The agent is given *ideas*, not a template: a handful of one-line sketches of how
-different kinds of codebase can divide, explicitly labelled as belonging to other
-repositories, followed by the real question — *where does responsibility change
-hands in this code?*
-
-If no agent answers, TLDRGraph stops and asks. An unconfigured repository has a
-single `Unclassified` bucket, not six confident guesses: a generic layer set is
-wrong everywhere it looks right.
-
-## 🚀 Quickstart
-
-### 1. Install TLDRGraph
 ```bash
 pip install tldrgraph
 ```
-### 2. Build the graph — through your coding agent
 
-**Do not run `tldrgraph init` manually in a terminal.** Start the
-`tldrgraph-init` workflow in whichever coding agent you use; the agent reads the
-repository, runs `init`, and handles every required follow-up. In Claude Code or
-Cursor, run `/tldrgraph-init`. In Codex, open `/skills` and select
-`tldrgraph-init`, or invoke `$tldrgraph-init`.
+## Generate a catalog
 
-The agent designs the repository-specific layers, extracts the graph, enriches
-every eligible node in 200-node batches, and downloads/builds local dense
-embeddings. In a detected coding-agent session, plain `tldrgraph init`
-auto-approves the full enrichment campaign; normal terminal users and non-agent
-automation still get the confirmation gate.
+Run this inside a supported coding-agent session:
 
-`--batch 200` controls chunk size while still processing everything. `--limit
-200` intentionally stops after 200 total nodes. Embeddings remain enabled unless
-you explicitly pass `--embeddings off`.
+```bash
+tldrgraph init
+```
 
-If no supported agent is usable, it preserves everything already built and
-prints a `NEXT ACTION` handoff. Follow that handoff and rerun the same command;
-TLDRGraph never invents architecture or source intent.
+When `init` reports `needs_feature_workflows`, it includes the current source
+hash. The active agent identifies feature outcomes and immediately writes the v4
+`.tldrgraph/features.yaml` index. It delegates one indexed feature to each
+source-reading subagent; each worker writes only its own v4 workflow file. Run
+`tldrgraph init` again to validate the artifacts and generate the explorer.
 
-It can report four resumable states:
+When repository source changes after a catalog exists, run `tldrgraph refresh`
+instead. It performs the same validation and generation flow while making the
+update intent explicit.
 
-| status | what it needs |
-| --- | --- |
-| `needs_layers` | Read the code and design the architecture. No template will be applied for you. |
-| `needs_confirmation` | Non-agent runs only: shows how many nodes need enrichment and how many agent rounds that is before approval. |
-| `needs_enrichment` | A batch of nodes to open, read, and describe. |
-| `needs_embeddings` | Enrichment is complete, but the required dense model/index could not be built. |
+The final artifacts are:
 
-Your agent drives the whole process with the installed `tldrgraph-init`
-workflow. Give it any scope or batch-size constraints you need; it will choose
-the appropriate `init` options. `scan` and `enrich` are aliases for `init`, kept
-for existing scripts, and should likewise be run by the agent rather than
-manually.
+- `.tldrgraph/features.yaml`
+- `.tldrgraph/workflows/<feature_id>.yaml`
+- `.tldrgraph/TLDRGRAPH_VISUALIZER.html`
 
-### 3. Explore the Architecture Visually
+## Explore
+
 ```bash
 tldrgraph ui --serve
 ```
-Opens the interactive canvas:
-- **Modules overview** at low zoom.
-- **Symbol details** (classes, methods, inputs, outputs) as you zoom in.
-- **Click-to-isolate** focused nodes with upstream callers and downstream callees.
-- **Live source viewing** on demand with zero static HTML bloat.
-- **⚠️ Dead Nodes filter** to immediately isolate unreferenced candidate symbols.
 
-### 4. Query Execution Flows
-```bash
-tldrgraph query "pension application approval flow"
-```
-Outputs ten readable Markdown execution flow tables by default, tracing the request across UI, API, Service, and DB layers. Queries use dense embeddings by default (and may download the configured model); use `--top-k`, `--embeddings auto`, or `--embeddings off` to override this behavior.
+The standalone browser application groups product and technical capabilities,
+draws each proven workflow, and opens cited source ranges from the repository.
 
-### 5. Trace Exact Call Paths
-```bash
-tldrgraph trace "ApplicationsController" "JhPensionApplication"
+## CLI
+
+```text
+tldrgraph init [PATH] [--json]
+tldrgraph refresh [PATH] [--json]
+tldrgraph ui [--path PATH] [--serve] [--port PORT] [--open|--no-open]
+tldrgraph install [--path PATH] [--all-agents]
 ```
 
-### 6. Review Dead Code & Reachability
-```bash
-tldrgraph dead-code
-```
-Surfaces orphaned components, unreferenced models, and unused files for human review.
-
----
-
-## 📊 Retrieval Benchmark: SWE-bench Lite
-
-To evaluate codebase localization performance against industry baselines, TLDRGraph was benchmarked on **40 real-world GitHub issues** from the standard **SWE-bench Lite** dataset (measuring ground-truth modified file identification from natural language problem statements):
-
-### 🎯 Highlight: 100.0% Recall@10 & 0.823 MRR
-> **TLDRGraph achieves 100.0% File Recall@10 and 0.823 MRR** on the standard SWE-bench Lite benchmark across 40 real GitHub tasks. By grounding retrieval in agent-designed architectural layers and deterministic cross-layer seams, TLDRGraph completely eliminates missed files—ensuring your coding agent retrieves every single relevant modified file without noise or hallucination.
-
-| Retrieval Engine | File Recall@1 | File Recall@5 | File Recall@10 | MRR | Context Budget | Search Latency |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **BM25 Lexical Keyword Search** | 60.0% | 80.0% | 85.0% | 0.671 | ~28,500 tokens | 15.79 ms |
-| **Chunked Dense Vector RAG** | 70.0% | 95.0% | 95.0% | 0.797 | ~22,400 tokens | 32.82 ms |
-| **Graphify (AST Knowledge Graph)** | 45.0% | 80.0% | 82.5% | 0.591 | ~9,500 tokens | 1.22 ms |
-| **Aider Repo-Map (AST PageRank)** | 17.5% | 50.0% | 72.5% | 0.331 | ~8,200 tokens | 1.95 ms |
-| **Codebase-Memory-MCP (Vector Memory)** | 50.0% | 70.0% | 75.0% | 0.581 | ~14,200 tokens | 32.50 ms |
-| **PageIndex (Tree-Based ToC)** | 52.5% | 82.5% | 85.0% | 0.646 | ~11,000 tokens | 1.24 ms |
-| **TLDRGraph (AST Zero-Token)** | 57.5% | 75.0% | 85.0% | 0.659 | **~2,400 tokens** | 34.20 ms |
-| **TLDRGraph (Layer-Grounded Slices)** | **75.0%** | **92.5%** | **100.0%** | **0.823** | ~8,000 tokens | 81.91 ms |
-
-> **Key Takeaways:**
-> - **100% Recall@10 Flawless Localization**: TLDRGraph (Layer-Grounded Slices) achieves **100.0% Recall@10**, meaning the target modified file is retrieved 100% of the time across all SWE-bench tasks (compared to 95.0% for Chunked RAG, 85.0% for BM25, 82.5% for Graphify, and 72.5% for Aider).
-> - **Unmatched Precision (0.823 MRR & 75.0% Recall@1)**: The correct file is ranked #1 in **75.0%** of queries, outperforming Chunked Dense RAG (70.0%), BM25 (60.0%), and Aider (17.5%).
-> - **Interactive Graphical Architecture Representation**: Beyond text-only context, TLDRGraph pairs dense retrieval with an interactive graphical representation—visualizing multi-layer module topologies and BPMN-style decision workflows directly in your browser.
-> - **Extreme Zero-Token Efficiency**: Even in pure zero-token mode (without any LLM enrichment spend), TLDRGraph scores **85.0% Recall@10** and **0.659 MRR** using only **~2,400 tokens** (nearly 12× smaller than BM25 and 9× smaller than chunked dense RAG).
-
-
----
-
-## 🤖 Works with any coding agent
-
-TLDRGraph automatically launches a supported agent CLI when possible. Inside an
-existing coding-agent session, or when no supported CLI is authenticated, it
-falls back to a portable file handoff that any agent can drive.
-
-Every tool gets the **same two artifacts and no more**: one body of instructions
-and one `tldrgraph-init` command, byte-identical everywhere.
-
-| Artifact | Where |
-| --- | --- |
-| **Instructions** | `AGENTS.md` — the cross-tool standard, read by Claude Code, Cursor, Codex, Antigravity, opencode, Gemini CLI, Zed and Copilot |
-| | `.clinerules/`, `.windsurf/rules/` — only for tools not known to read AGENTS.md |
-| **Command / skill** | `.claude/commands/`, `.cursor/commands/`, `.agents/skills/` (Codex), `.clinerules/workflows/`, `.windsurf/workflows/`, `.opencode/command/`, `.roo/commands/`, `.kilocode/workflows/`, `.goosehints/`, `.continue/prompts/` |
-
-Codex intentionally uses `.agents/skills/tldrgraph-init/SKILL.md`, not a
-`.codex/commands/` mirror. Codex does not load repository commands from
-`.codex/commands`; its supported repository-local workflow location is
-`.agents/skills`. Open `/skills` and select `tldrgraph-init`, or invoke it as
-`$tldrgraph-init`. TLDRGraph writes the same workflow body there that it writes
-for Claude Code and Cursor.
-
-Tools with a marker directory are installed only when the repo shows them in
-use; `tldrgraph install --all-agents` writes them all. Adding a tool is one row
-in `TARGETS` in [agent_commands.py](tldrgraph/agent_commands.py) — **paths only,
-never execution code.**
-
-No tool gets special treatment. Earlier versions shipped a Claude-only skill file
-*plus* a `CLAUDE.md` section *plus* a Cursor rule *plus* an Antigravity rule, each
-worded differently and each a different length; they contradicted each other
-within a release. `tldrgraph install` deletes those on sight.
-
-### Agent execution controls
-
-The `tldrgraph-init` workflow is the supported entry point. It can use the
-agent's native session or a portable handoff, and preserves the graph while
-providing the next action if agent work is unavailable. Run the workflow from
-your coding agent; do not invoke `tldrgraph init` directly.
-
-## 📁 Artifacts & Output Formats
-
-Scanning a repository adds **one** directory, `.tldrgraph/` — graphify's raw export is
-kept inside it rather than in a second top-level `graphify-out/`:
-
-- `.tldrgraph/graph.json` : Persisted multi-layer graph snapshot with cross-layer edges.
-- `.tldrgraph/layers.config.yaml`: The agent-designed layer definition. **Commit this.**
-- `.tldrgraph/AGENT_CONTRACT.md`: The request/response contract. **Commit this.**
-- `.tldrgraph/layers.yaml`: Layer distribution and node definitions.
-- `.tldrgraph/flows.yaml` : Exported trace paths.
-- `.tldrgraph/graphify_graph.json`, `.tldrgraph/graphify_manifest.json`: graphify's raw
-  AST export and file manifest (renamed so they cannot collide with the enriched snapshot).
-- `.tldrgraph/graphify/`: graphify's own AST cache.
-- `.tldrgraph/tldrgraph.db`: Local SQLite content-hash cache for zero-token incremental updates.
-- `.tldrgraph/TLDRGRAPH_VISUALIZER.html`: Standalone zero-dependency visualizer.
-
-`tldrgraph install` (and every `scan`) adds a managed block to your `.gitignore` that
-ignores the generated artifacts while keeping `layers.config.yaml` and `AGENT_CONTRACT.md`
-committable, so your whole team shares one architecture map.
-
-Upgrading from an older version? A leftover `graphify-out/` is no longer read or written;
-`scan` will point it out so you can delete it.
-
----
-
-## 🙏 Acknowledgements & Upstream Credits
-
-TLDRGraph is built on the shoulders of giants. Sincere credit and special thanks to:
-- **[Graphify](https://github.com/safishamsi/graphify)** by [Safi Shamsi](https://github.com/safishamsi) — for the AST parsing and knowledge graph extraction foundation.
-
----
-
-## 📄 License
-
-Distributed under the [MIT License](LICENSE).
+Version 0.3 is a breaking, workflow-only release. Earlier graph-based commands
+and v1/v2 generated artifacts are not supported; run `tldrgraph init` to create
+the current catalog, then `tldrgraph refresh` after later source changes.

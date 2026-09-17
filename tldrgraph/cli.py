@@ -1,385 +1,97 @@
-"""
-CLI Entry Point for TLDRGraph: Multi-layer code flow & hybrid semantic search engine.
-"""
+"""CLI for the source-backed TLDRGraph Workflow Explorer."""
 
 from __future__ import annotations
 
-import json
+import functools
+import http.server
 import os
-from typing import Any, Dict, List, Optional, Tuple
+import socketserver
+import threading
+import webbrowser
+
 import click
-import yaml
 
-from . import agent_runner, paths, vector_store as vs_mod
-from .cli_commands import (
-    DEAD_CODE_STATUS_NOTES,
-    DEAD_CODE_STATUSES,
-    fmt_bytes,
-    print_doctor_report,
-    run_apply_enrichment,
-    run_dead_code_report,
-    run_queue_enrichment,
-    serve_visualizer,
-    snapshot_or_graph_nodes,
-)
-from .cli_enrichment import (
-    AGENT_ENRICHMENT_SOURCE,
-    AUDIT_LOG_FILENAME,
-    CURSOR_FILENAME,
-    HEURISTIC_ENRICHMENT_SOURCE,
-    LEGACY_FILENAME,
-    LEGACY_REQUEST_FILENAME,
-    LEGACY_RESPONSE_FILENAME,
-    NON_CODE_NODE_TYPES,
-    REQUEST_FILENAME,
-    RESPONSE_FILENAME,
-    STATE_DIR,
-    apply_enrichment_items,
-    build_enrichment_batch,
-    coerce_enrichment_items,
-    compute_degrees,
-    enrichment_candidates,
-    enrichment_instructions,
-    needs_agent_enrichment,
-    read_cursor,
-    read_payload,
-    stamp_degrees,
-    state_path,
-    write_cursor,
-    write_payload,
-)
-from .cli_agent_loop import build_agent_enrichment_prompt
-from .cli_pipeline import (
-    APPLIED_RESPONSE_FILENAME,
-    STATUS_DONE,
-    STATUS_NEEDS_CONFIRMATION,
-    STATUS_NEEDS_EMBEDDINGS,
-    STATUS_NEEDS_ENRICHMENT,
-    STATUS_NEEDS_LAYERS,
-    apply_pending_enrichment_response,
-    apply_pending_layer_response,
-    emit_status,
-    init_pipeline,
-    run_agent_enrichment,
-    stdout_to_stderr_if,
-)
-from .flow_engine import FlowEngine
-from .graph_loader import (
-    BRIDGE_SCORE_FLOOR,
-    GraphLoader,
-    bridge_score_floor,
-    resolve_call_target,
-)
+from .cli_pipeline import init_pipeline
 from .installer import ensure_gitignore, gitignore_warnings, install_agent_rules
-from .init_policy import resolve_default_on_embeddings
-from .layer_config import config_path
-from .layers import get_registry, layer_id_of
-from .propose_layers import (
-    RESPONSE_FILENAME as PROPOSE_RESPONSE_FILENAME,
-    apply_proposed_layers,
-    auto_configure_layers,
-    generate_propose_request,
-)
 from .visualizer import generate_visualizer_html
-from .cli_bpmn import run_apply_bpmn, run_bpmn_enrich
-
-embeddings_option = click.option(
-    "--embeddings", "embeddings",
-    type=click.Choice([vs_mod.POLICY_OFF, vs_mod.POLICY_AUTO, vs_mod.POLICY_ON]),
-    default=None,
-    help="Policy override. Init and query default to 'on'; other read commands default to cached-only 'auto'.",
-)
-
-_init_options = [
-    click.argument("path", default=".", type=click.Path(exists=True)),
-    click.option("--yes", "-y", "assume_yes", is_flag=True,
-                 help="Approve the current full enrichment campaign without asking again"),
-    click.option("--batch", "batch_size", default=200, show_default=True,
-                 help="Nodes handed to the agent per round"),
-    click.option("--limit", "max_nodes", default=0, show_default=True,
-                 help="Partial-run cap. 0 authorizes every current candidate."),
-    click.option("--rebuild", is_flag=True, help="Re-extract and rebuild enrichment from scratch"),
-    click.option("--relayer", is_flag=True, help="Discard the layer set and design it again"),
-    click.option("--agent-cli/--no-agent-cli", default=True, show_default=True,
-                 help="Automatically use a supported agent CLI for layers and enrichment; "
-                      "disable to use the file handoff workflow."),
-    click.option("--agent-model", default=None,
-                 help="Model for --agent-cli (e.g. opus, sonnet, gemini-2.5-pro). Defaults "
-                      "to $TLDRGRAPH_AGENT_MODEL. Ignored on the handshake path, where your "
-                      "own agent session picks the model."),
-    click.option("--llm-links/--no-llm-links", default=True, show_default=True,
-                 help="Infer evidence-backed frontend/backend links during init."),
-    click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status"),
-    embeddings_option,
-]
-
-
-def _with_init_options(fn):
-    for option in reversed(_init_options):
-        fn = option(fn)
-    return fn
-
-
-_init_pipeline = init_pipeline
-_apply_pending_enrichment_response = apply_pending_enrichment_response
-_apply_pending_layer_response = apply_pending_layer_response
-_emit_status = emit_status
-_snapshot_or_graph_nodes = snapshot_or_graph_nodes
-_stamp_degrees = stamp_degrees
-_enrichment_candidates = enrichment_candidates
-_enrichment_instructions = enrichment_instructions
-_state_path = state_path
-_read_payload = read_payload
-_write_payload = write_payload
-_read_cursor = read_cursor
-_write_cursor = write_cursor
-_fmt_bytes = fmt_bytes
-with_init_options = _with_init_options
 
 
 @click.group()
 def cli():
-    """TLDRGraph: Token-Efficient Hybrid Code Flow & Semantic Navigation Engine (Dynamic Multi-Layer)"""
-    pass
+    """Generate and explore source-backed feature workflows."""
 
 
 @cli.command()
-@_with_init_options
-def init(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
-    """Build layers, extract, enrich, and embed this repository in one command."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status.")
+def init(path: str, as_json: bool) -> None:
+    """Create the source-backed workflow catalog."""
+    init_pipeline(path, as_json)
 
 
 @cli.command()
-@_with_init_options
-def scan(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
-    """Alias for `init`, kept for existing scripts and agent rules."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status.")
+def refresh(path: str, as_json: bool) -> None:
+    """Refresh an existing source-backed workflow catalog."""
+    init_pipeline(path, as_json, command_label="REFRESH")
 
 
-@cli.command()
-@_with_init_options
-def enrich(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, llm_links, as_json, embeddings):
-    """Alias for `init`, which already resumes enrichment where it left off."""
-    init_pipeline(path, assume_yes, batch_size, max_nodes, rebuild, relayer, agent_cli, agent_model, embeddings, llm_links, as_json)
+class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, fmt, *args):
+        pass
+
+
+def _serve(root: str, html_path: str, port: int, open_browser: bool) -> None:
+    relative = os.path.relpath(html_path, root).replace(os.sep, "/")
+    handler = functools.partial(_QuietHandler, directory=root)
+    socketserver.TCPServer.allow_reuse_address = True
+    try:
+        server = socketserver.TCPServer(("127.0.0.1", port), handler)
+    except OSError as error:
+        raise click.ClickException(f"Could not bind port {port}: {error}") from error
+    url = f"http://127.0.0.1:{port}/{relative}"
+    click.echo(f"Serving {root} at {url}")
+    if open_browser:
+        threading.Timer(0.5, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        click.echo("\nWorkflow Explorer stopped.")
+    finally:
+        server.server_close()
 
 
 @cli.command(name="ui")
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--serve", is_flag=True, help="Serve the repo locally so the visualizer can read source files")
-@click.option("--port", default=8777, help="Port for --serve")
-@click.option("--open/--no-open", "open_browser", default=True, help="Open the visualizer in a browser (with --serve)")
-def visualizer_cmd(path, serve, port, open_browser):
-    """Generate and view interactive standalone HTML visualizer (.tldrgraph/TLDRGRAPH_VISUALIZER.html)."""
-    html_path = generate_visualizer_html(path)
-    click.echo(f"\n🌐 [TLDRGraph Visualizer]: {os.path.abspath(html_path)}")
-    if not serve:
-        click.echo("Open this file in any web browser to explore all architectural layers and cross-layer connections interactively!")
-        click.echo("Source code is read live: use 'Connect project' in the page, or rerun with --serve to skip the prompt.\n")
-        return
-    serve_visualizer(path, html_path, port, open_browser)
+@click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--serve", is_flag=True, help="Serve the repository for live source access.")
+@click.option("--port", default=8777, show_default=True)
+@click.option("--open/--no-open", "open_browser", default=True, show_default=True)
+def ui(path: str, serve: bool, port: int, open_browser: bool) -> None:
+    """Generate the standalone Workflow Explorer."""
+    root = os.path.abspath(path)
+    output = generate_visualizer_html(root)
+    click.echo(f"Workflow Explorer: {output}")
+    if serve:
+        _serve(root, output, port, open_browser)
 
 
 @cli.command()
-@click.argument("query_text")
-@click.option("--top-k", default=vs_mod.DEFAULT_TOP_K, show_default=True, help="Number of flow candidates to return")
-@click.option("--path", default=".", help="Repository root path")
-@embeddings_option
-def query(query_text, top_k, path, embeddings):
-    """Hybrid search + trace end-to-end multi-layer execution flows. Read-only: never enriches."""
-    loader = GraphLoader(path, embeddings=resolve_default_on_embeddings(embeddings))
-    graph = loader.load_or_extract(enrich_llm=False)
-    engine = FlowEngine(graph, loader.vector_store, root_dir=path)
-    results = engine.query_flow(query_text, top_k=top_k)
-    if not results:
-        click.echo(f"❌ No matching flows found for: '{query_text}'")
-        return
-    yaml_file = engine.export_flows_yaml(results)
-    click.echo(f"\n🔍 [TLDRGraph Flow Query]: '{query_text}'\n💾 Saved flow paths in YAML: {yaml_file}\n")
-    for i, res in enumerate(results, 1):
-        click.echo(f"━━━ [Option {i}] Root: {res['root_node']} ({res['layer']}) (Score: {res['match_score']}) ━━━")
-        click.echo(engine.render_markdown_table(res["flow"]) + "\n")
-
-
-@cli.command()
-@click.argument("source")
-@click.argument("target", required=False)
-@click.option("--path", default=".", help="Repository root path")
-def trace(source, target, path):
-    """Trace exact execution path between two symbols across layers. Read-only: never enriches."""
-    loader = GraphLoader(path)
-    graph = loader.load_or_extract(enrich_llm=False)
-    engine = FlowEngine(graph, loader.vector_store, root_dir=path)
-    res = engine.trace_path(source, target)
-    if "error" in res:
-        click.echo(f"❌ {res['error']}")
-        return
-    click.echo(f"\n🔄 [TLDRGraph Trace]: '{res.get('source')}' ➔ '{res.get('target', 'downstream')}'")
-    click.echo(engine.render_markdown_table(res.get("steps", [])) + "\n")
-
-
-@cli.command()
-@click.option("--path", default=".", help="Repository root path")
-def layers(path):
-    """View node count summary across all architectural layers. Read-only: never enriches."""
-    loader = GraphLoader(path)
-    loader.load_or_extract(enrich_llm=False)
-    click.echo("\n🏛️  TLDRGraph Multi-Layer Architecture Summary:\n")
-    for layer, nodes in loader.nodes_by_layer.items():
-        click.echo(f"  • {layer.ljust(35)} : {len(nodes)} nodes")
-    click.echo(f"\nTotal Nodes Mapped: {loader.graph.number_of_nodes()}")
-
-
-@cli.command("queue-enrichment")
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--limit", default=200, show_default=True,
-              help="Maximum nodes to queue in this batch. 0 queues every remaining candidate.")
-@click.option("--requeue", is_flag=True,
-              help="Also re-queue ids handed out earlier but never applied (abandoned batches).")
-@click.option("--reset", is_flag=True,
-              help="Forget all queue progress and start again from the highest-priority node.")
-def queue_enrichment(path, limit, requeue, reset):
-    """
-    Queue the highest-value un-enriched nodes for the coding agent.
-
-    Writes .tldrgraph/enrichment_request.yaml. The agent reads the source files and
-    writes its answer to a DIFFERENT file, .tldrgraph/enrichment_response.yaml, which
-    `apply-enrichment` then merges. Running this twice advances through the backlog
-    instead of repeating the same nodes.
-    """
-    run_queue_enrichment(path, limit, requeue, reset)
-
-
-@cli.command("apply-enrichment")
-@click.argument("enrichment_file", required=False, type=click.Path(exists=True, dir_okay=False))
-@click.option("--path", default=".", help="Repository root path")
-def apply_enrichment(enrichment_file, path):
-    """
-    Apply the agent's enrichment response into the graph, SQLite cache and vector index.
-
-    With no argument, reads .tldrgraph/enrichment_response.yaml (or .json), falling back to
-    legacy response files when present.
-    """
-    run_apply_enrichment(path, enrichment_file)
-
-
-@cli.command("bpmn-enrich")
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--limit", default=120, show_default=True,
-              help="Maximum shapes to queue in this batch.")
-def bpmn_enrich(path, limit):
-    """
-    Queue the workflow shapes that still speak in code, for the coding agent.
-
-    The AST pass has already worked out the true shape of every workflow - its
-    decisions, loops and error paths. This asks the agent to name them in business
-    language. Writes .tldrgraph/bpmn_request.yaml; the agent answers in
-    .tldrgraph/bpmn_response.yaml, which `apply-bpmn` then merges.
-    """
-    run_bpmn_enrich(path, limit)
-
-
-@cli.command("apply-bpmn")
-@click.option("--path", default=".", help="Repository root path")
-def apply_bpmn(path):
-    """
-    Apply the agent's workflow phrasing into .tldrgraph/bpmn_phrases.yaml.
-
-    Each phrase records the code it describes, so it is dropped automatically if
-    that code later changes rather than captioning logic it no longer matches.
-    """
-    run_apply_bpmn(path)
-
-
-@cli.command("dead-code")
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--status", "status", default="candidate", show_default=True,
-              type=click.Choice(list(DEAD_CODE_STATUSES) + ["all"], case_sensitive=False),
-              help="Which review status to list. 'candidate' = nothing observed reaches it "
-                   "(evidence, not proof). 'unreviewed' = not enough evidence to conclude, "
-                   "never treat as removable.")
-@click.option("--limit", default=0, help="Max rows to print. 0 shows all.")
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON for agent consumption.")
-def dead_code(path, status, limit, as_json):
-    """
-    List nodes by reachability review status - REVIEW CANDIDATES, NOT CONFIRMED DEAD CODE.
-
-    Static analysis cannot see reflection, DI containers, string-built routes or template
-    references, so a 'candidate' is a node worth a human or agent review, not a node that
-    is safe to delete. 'unreviewed' explicitly means there was not enough evidence to
-    conclude anything. This command never deletes and never proposes deletion.
-    """
-    run_dead_code_report(path, status.lower(), limit, as_json)
-
-
-@cli.command()
-@click.option("--path", default=".", help="Repository root path")
-@embeddings_option
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON for agent consumption.")
-def doctor(path, embeddings, as_json):
-    """Report which retrieval backend is ACTUALLY live, and why."""
-    store = vs_mod.LocalVectorStore(os.path.join(path, STATE_DIR, "vector_index.json"), embeddings=embeddings)
-    d = store.diagnostics()
-    if as_json:
-        click.echo(json.dumps(d, indent=2, default=str))
-        return
-    print_doctor_report(d)
-
-
-@cli.command()
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--all-agents", is_flag=True,
-              help="Write the tldrgraph-init workflow for every agent tool TLDRGraph knows.")
-def install(path, all_agents):
-    """Install TLDRGraph rules and workflows for Codex and other coding agents."""
+@click.option("--path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--all-agents", is_flag=True, help="Install the workflow for every known coding agent.")
+def install(path: str, all_agents: bool) -> None:
+    """Install the source-backed workflow handshake for coding agents."""
     gitignore = ensure_gitignore(path)
-    res = install_agent_rules(path, all_agents=all_agents)
-    click.echo("✅ TLDRGraph agent skills & rules installed successfully:")
-    for k, v in res.items():
-        if k == "gitignore":
-            continue
-        click.echo(f"  • {k}: {v}")
-    click.echo(f"  • gitignore: {gitignore['path']} ({gitignore['status']})")
-    click.echo("\n💡 Claude/Cursor: /tldrgraph-init · Codex: /skills → tldrgraph-init or $tldrgraph-init")
-    click.echo("   Any agent can also run `tldrgraph init` directly.")
+    result = install_agent_rules(path, all_agents=all_agents)
+    click.echo("Installed TLDRGraph agent workflow:")
+    for name, output in result.items():
+        click.echo(f"  {name}: {output}")
+    click.echo(f"  gitignore: {gitignore['path']} ({gitignore['status']})")
     for warning in gitignore_warnings(path):
-        click.echo(f"⚠️  {warning}")
+        click.echo(f"Warning: {warning}")
 
 
-@cli.command("propose-layers")
-@click.option("--path", default=".", help="Repository root path")
-@click.option("--auto", is_flag=True, help="Try to synthesize the layer set now via an agent CLI or LLM")
-@click.option("--force", is_flag=True, help="Force overwrite an existing layers.config.yaml")
-def propose_layers_cmd(path, auto, force):
-    """Write the layer-proposal request for the agent, or try to synthesize it now."""
-    if auto:
-        reg, out_path, source = auto_configure_layers(path, force=force, use_agent=True)
-        if reg is not None:
-            click.echo(f"✅ Configured {len(reg)} architectural layers ({source}) in {out_path}")
-            click.echo("🔄 Run `tldrgraph init` to reclassify nodes with the new layer set.")
-            return
-        click.echo("ℹ️  Nothing could design the layers automatically, and TLDRGraph has no template to fall back on.")
-
-    req_path = generate_propose_request(path)
-    click.echo(f"📋 Queued layer proposal request in {req_path}")
-    resp_rel = os.path.join(STATE_DIR, PROPOSE_RESPONSE_FILENAME)
-    click.echo(f"👉 Read it, READ THE SOURCE, write {resp_rel}, then run `tldrgraph init`.")
-
-
-@cli.command("apply-layers")
-@click.argument("response_file", required=False, type=click.Path(exists=True, dir_okay=False))
-@click.option("--path", default=".", help="Repository root path")
-def apply_layers_cmd(response_file, path):
-    """Validate and apply proposed architectural layers into .tldrgraph/layers.config.yaml."""
-    try:
-        out_path = apply_proposed_layers(path, response_file)
-        click.echo(f"✅ Applied and validated architectural layer set in {out_path}")
-        click.echo("🔄 Run `tldrgraph scan .` to reclassify nodes with the new layer set.")
-    except Exception as err:
-        raise click.ClickException(str(err))
-
-
-def main():
+def main() -> None:
     cli()
 
 

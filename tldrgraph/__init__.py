@@ -1,10 +1,3 @@
-"""
-TLDRGraph: Token-Efficient Hybrid Code Flow & Semantic Navigation Engine (Dynamic Multi-Layer)
-"""
+"""TLDRGraph source-backed Workflow Explorer."""
 
-__version__ = "0.2.0"
-
-# Imported for its import-time side effect: it pins graphify's output directory
-# inside .tldrgraph/ before graphify can be imported and read the default. See
-# tldrgraph.paths.pin_graphify_output_dir.
-from . import paths as paths  # noqa: E402,F401
+__version__ = "0.3.0"
