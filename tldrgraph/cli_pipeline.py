@@ -18,12 +18,14 @@ STATUS_DONE = "done"
 STATUS_NEEDS_FEATURE_WORKFLOWS = "needs_feature_workflows"
 
 
-def emit_status(status: str, lines: List[str], progress: Dict[str, Any], as_json: bool) -> str:
+def emit_status(status: str, lines: List[str], progress: Dict[str, Any], as_json: bool,
+                command_label: str = "INIT") -> str:
     if as_json:
         click.echo(json.dumps({"status": status, "phase": "feature_workflows",
                                "next_action": lines, "progress": progress}, indent=2))
     else:
-        click.echo("\nTLDRGRAPH INIT — " + ("COMPLETE" if status == STATUS_DONE else "NEXT ACTION REQUIRED"))
+        click.echo(f"\nTLDRGRAPH {command_label} — " +
+                   ("COMPLETE" if status == STATUS_DONE else "NEXT ACTION REQUIRED"))
         click.echo(f"status: {status}")
         click.echo(f"source_hash: {progress['source_hash']}")
         for line in lines:
@@ -32,7 +34,7 @@ def emit_status(status: str, lines: List[str], progress: Dict[str, Any], as_json
     return status
 
 
-def init_pipeline(path: str, as_json: bool = False) -> str:
+def init_pipeline(path: str, as_json: bool = False, command_label: str = "INIT") -> str:
     root = os.path.abspath(path)
     ensure_gitignore(root)
     install_agent_rules(root)
@@ -42,9 +44,12 @@ def init_pipeline(path: str, as_json: bool = False) -> str:
                 "source_hash": inventory["source_hash"],
                 "features": stats.get("features", 0)}
     if stats["pending"]:
+        lines = feature_workflow_status_lines(root, stats)
+        if not as_json:
+            lines = feature_workflow_status_lines(root, stats, command_label.lower())
         return emit_status(STATUS_NEEDS_FEATURE_WORKFLOWS,
-                           feature_workflow_status_lines(root, stats), progress, as_json)
+                           lines, progress, as_json, command_label)
     html_path = generate_visualizer_html(root)
     lines = [f"Saved {stats['features']} feature(s).",
              f"Generated {os.path.relpath(html_path, root)}."]
-    return emit_status(STATUS_DONE, lines, progress, as_json)
+    return emit_status(STATUS_DONE, lines, progress, as_json, command_label)

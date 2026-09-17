@@ -299,6 +299,6 @@ document.getElementById('search').addEventListener('input',renderCatalog);
 window.addEventListener('resize',resize);
 
 const state=DATA.workflow_state||{};
-if(state.state==='stale_features'){const banner=document.getElementById('state-banner');banner.hidden=false;banner.textContent='This catalog was generated from older source. Run tldrgraph init to refresh it.'}
-if(state.state&&state.state!=='ready'&&state.state!=='stale_features'){const banner=document.getElementById('state-banner');banner.hidden=false;banner.textContent=state.error||'No valid v3 workflow catalog is available. Run tldrgraph init.'}
+if(state.state==='stale_features'){const banner=document.getElementById('state-banner');banner.hidden=false;banner.textContent='This catalog was generated from older source. Run tldrgraph refresh to update it.'}
+if(state.state&&state.state!=='ready'&&state.state!=='stale_features'){const banner=document.getElementById('state-banner');banner.hidden=false;banner.textContent=state.error||'No valid v3 workflow catalog is available. Run tldrgraph init to create one.'}
 renderCatalog();if(DATA.workflows.length)selectWorkflow(DATA.workflows[0].id);resize();

@@ -19,7 +19,7 @@ def load_feature_manifest(root: str, current_hash: str = ""):
     if data is None:
         return None, "missing_features"
     if not isinstance(data, dict) or data.get("schema") != FEATURE_SCHEMA:
-        return None, "legacy_features: regenerate v1/v2/v3 artifacts with tldrgraph init"
+        return None, "legacy_features: regenerate v1/v2/v3 artifacts with tldrgraph refresh"
     if not isinstance(data.get("areas"), list) or not isinstance(data.get("features"), list):
         return None, "invalid_features"
     state = "stale_features" if current_hash and data.get("source_hash") != current_hash else "ready"

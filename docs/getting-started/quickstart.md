@@ -11,6 +11,10 @@ outcomes and write the v4 `features.yaml` index first. It then spawns one
 source-reading subagent per indexed feature. Each worker writes only its own v4
 workflow file. Run `tldrgraph init` again; a successful run reports `done`.
 
+After repository source changes, use `tldrgraph refresh` to update the existing
+catalog. If it requests workflows, complete the handoff and run `tldrgraph refresh`
+again.
+
 ```bash
 tldrgraph ui --serve
 ```

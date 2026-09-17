@@ -11,7 +11,8 @@ from .feature_workflow_schema import validate_catalog_artifacts
 from .payload import read_payload
 
 
-def feature_workflow_status_lines(root: str, stats: Optional[Dict[str, Any]]) -> List[str]:
+def feature_workflow_status_lines(root: str, stats: Optional[Dict[str, Any]],
+                                  command_name: str = "init") -> List[str]:
     values = stats or {}
     if not values.get("pending"):
         return ["Feature catalog and workflow files are current."]
@@ -21,7 +22,7 @@ def feature_workflow_status_lines(root: str, stats: Optional[Dict[str, Any]]) ->
         "  2. Spawn one fresh source-reading subagent for each feature.",
         "  3. Combine their evidence-backed results and write .tldrgraph/features.yaml",
         "     plus .tldrgraph/workflows/<feature_id>.yaml using this source_hash.",
-        "  4. Run: tldrgraph init",
+        f"  4. Run: tldrgraph {command_name}",
     ]
     if values.get("error"):
         lines.insert(1, f"  Current artifacts rejected: {values['error']}")

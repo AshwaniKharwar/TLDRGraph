@@ -25,8 +25,16 @@ def cli():
 @click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
 @click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status.")
 def init(path: str, as_json: bool) -> None:
-    """Create or refresh the source-backed workflow catalog."""
+    """Create the source-backed workflow catalog."""
     init_pipeline(path, as_json)
+
+
+@cli.command()
+@click.argument("path", default=".", type=click.Path(exists=True, file_okay=False))
+@click.option("--json", "as_json", is_flag=True, help="Emit machine-readable status.")
+def refresh(path: str, as_json: bool) -> None:
+    """Refresh an existing source-backed workflow catalog."""
+    init_pipeline(path, as_json, command_label="REFRESH")
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):

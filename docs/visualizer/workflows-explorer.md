@@ -11,7 +11,7 @@ The explorer reads only the v3 feature manifest and workflow YAML files. It show
 - live source through `ui --serve` or a browser folder grant.
 
 When repository contents no longer match the catalog's `source_hash`, the last
-catalog remains visible with a stale warning. Run `tldrgraph init` to refresh it.
+catalog remains visible with a stale warning. Run `tldrgraph refresh` to update it.
 
 Click a process box, a decision diamond, or an alternate-path box to inspect its
 source-backed detail and open the cited source range. The canvas remains

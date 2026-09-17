@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 BLOCK_BEGIN = "<!-- BEGIN TLDRGRAPH -->"
 BLOCK_END = "<!-- END TLDRGRAPH -->"
 COMMAND_NAME = "tldrgraph-init"
+REFRESH_COMMAND_NAME = "tldrgraph-refresh"
 AGENTS_MD = "AGENTS.md"
 
 
@@ -49,12 +50,13 @@ INSTRUCTIONS_BODY = """## TLDRGraph
 TLDRGraph builds a source-backed feature and workflow catalog for this repository.
 It does not build an architecture graph, infer workflows heuristically, or run AI itself.
 
-Run `tldrgraph init`. If it returns `needs_feature_workflows`, identify feature
-outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
+Run `tldrgraph init` to create a catalog. Run `tldrgraph refresh` when an
+existing catalog needs updating after source changes. If either command returns
+`needs_feature_workflows`, identify feature outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
 with the reported `source_hash`. Then spawn one fresh source-reading subagent
 for each indexed feature. Each worker writes only its assigned complete
 `.tldrgraph/workflows/<feature_id>.yaml` v4 file; it never edits `features.yaml`
-or another feature's workflow. Run `tldrgraph init` again to validate the direct
+or another feature's workflow. Run the same command again to validate the direct
 artifacts and generate the explorer.
 
 Every capability and workflow step must cite a verified repository-relative
@@ -74,7 +76,7 @@ The full schema is in `.tldrgraph/AGENT_CONTRACT.md`.
 
 COMMAND_BODY = """# TLDRGraph: build the source-backed workflow catalog
 
-Run exactly:
+For a first catalog, run:
 
 ```bash
 tldrgraph init
@@ -82,13 +84,34 @@ tldrgraph init
 
 When the status is `needs_feature_workflows`:
 
-1. Read the `source_hash` and validation status returned by `tldrgraph init`.
+1. Read the `source_hash` and validation status returned by the command.
 2. Identify feature outcomes, define areas, and write the v4
    `.tldrgraph/features.yaml` index before delegating workflow research.
 3. Spawn one fresh source-reading subagent for each indexed feature. Never assign the entire catalog to one subagent.
 4. Have each worker write only its evidence-backed v4 workflow to its assigned
    `.tldrgraph/workflows/<feature_id>.yaml` file; do not collect or rewrite it.
-5. Run `tldrgraph init` again.
+5. Run the same command again. Use `tldrgraph refresh` when updating an existing catalog after source changes.
+
+Continue until the status is `done`.
+"""
+
+REFRESH_COMMAND_BODY = """# TLDRGraph: refresh the source-backed workflow catalog
+
+Run exactly:
+
+```bash
+tldrgraph refresh
+```
+
+When the status is `needs_feature_workflows`:
+
+1. Read the `source_hash` and validation status returned by `tldrgraph refresh`.
+2. Identify feature outcomes, define areas, and write the v4
+   `.tldrgraph/features.yaml` index before delegating workflow research.
+3. Spawn one fresh source-reading subagent for each indexed feature. Never assign the entire catalog to one subagent.
+4. Have each worker write only its evidence-backed v4 workflow to its assigned
+   `.tldrgraph/workflows/<feature_id>.yaml` file; do not collect or rewrite it.
+5. Run `tldrgraph refresh` again.
 
 Continue until the status is `done`.
 """
@@ -102,6 +125,12 @@ def command_text(target: Optional[AgentTarget] = None) -> str:
     if target is not None and not target.frontmatter:
         return COMMAND_BODY
     return _frontmatter(COMMAND_NAME, "Build or refresh source-backed feature workflows") + COMMAND_BODY
+
+
+def refresh_command_text() -> str:
+    return (_frontmatter(REFRESH_COMMAND_NAME,
+                         "Refresh source-backed feature workflows after repository source changes") +
+            REFRESH_COMMAND_BODY)
 
 
 def instructions_text(target: Optional[AgentTarget] = None) -> str:
@@ -149,6 +178,10 @@ def install_agent_commands(root_dir: str = ".", all_agents: bool = False) -> Dic
         if target.command_path:
             path = os.path.join(root, target.command_path); _write_if_changed(path, command_text(target))
             written[f"{target.name} (command)"] = path
+        if target.name == "Codex":
+            path = os.path.join(root, ".agents", "skills", REFRESH_COMMAND_NAME, "SKILL.md")
+            _write_if_changed(path, refresh_command_text())
+            written[f"{target.name} (refresh command)"] = path
         if target.instructions_path:
             path = os.path.join(root, target.instructions_path); _write_if_changed(path, instructions_text(target))
             written[f"{target.name} (instructions)"] = path

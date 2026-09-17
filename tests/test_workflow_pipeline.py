@@ -103,10 +103,40 @@ def test_json_status_is_machine_readable(source_repo, capsys):
     assert output["progress"]["source_hash"]
 
 
-def test_only_three_cli_commands_are_exposed():
+def test_refresh_matches_init_pipeline_and_uses_refresh_text(source_repo):
+    runner = CliRunner()
+
+    result = runner.invoke(cli, ["refresh", str(source_repo)])
+    assert result.exit_code == 0
+    assert "TLDRGRAPH REFRESH — NEXT ACTION REQUIRED" in result.output
+    assert "Run: tldrgraph refresh" in result.output
+
+    init_result = runner.invoke(cli, ["init", str(source_repo), "--json"])
+    assert init_result.exit_code == 0
+    json_result = runner.invoke(cli, ["refresh", str(source_repo), "--json"])
+    assert json_result.exit_code == 0
+    output = json.loads(json_result.output)
+    assert output == json.loads(init_result.output)
+    assert output["status"] == "needs_feature_workflows"
+    assert output["phase"] == "feature_workflows"
+    assert set(output) == {"status", "phase", "next_action", "progress"}
+
+    inventory = build_source_inventory(str(source_repo))
+    _write_catalog(source_repo, inventory["source_hash"])
+    done_result = runner.invoke(cli, ["refresh", str(source_repo), "--json"])
+    assert done_result.exit_code == 0
+    assert json.loads(done_result.output)["status"] == "done"
+
+    (source_repo / "app.py").write_text("def changed():\n    return True\n", encoding="utf-8")
+    stale_result = runner.invoke(cli, ["refresh", str(source_repo), "--json"])
+    assert stale_result.exit_code == 0
+    assert json.loads(stale_result.output)["status"] == "needs_feature_workflows"
+
+
+def test_expected_cli_commands_are_exposed():
     runner = CliRunner()
     help_result = runner.invoke(cli, ["--help"])
-    for command in ("init", "ui", "install"):
+    for command in ("init", "refresh", "ui", "install"):
         assert command in help_result.output
     for removed in ("query", "trace", "scan", "enrich", "layers", "dead-code", "doctor"):
         assert runner.invoke(cli, [removed]).exit_code == 2

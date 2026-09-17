@@ -5,7 +5,8 @@ not construct an architecture graph and does not launch an AI process itself.
 
 ## Direct artifact workflow
 
-Run `tldrgraph init`. A missing, invalid, or stale catalog returns
+Run `tldrgraph init` to create a catalog. Run `tldrgraph refresh` to update an
+existing catalog after source changes. A missing, invalid, or stale catalog returns
 `needs_feature_workflows` and prints the current `source_hash`. The active coding
 agent identifies feature outcomes and writes the catalog index first. It then
 delegates each indexed outcome to a separate source-reading subagent. Each
@@ -17,8 +18,8 @@ worker objects or write workflows:
 .tldrgraph/workflows/<feature_id>.yaml
 ```
 
-Each final artifact must use the reported source hash. Run `tldrgraph init`
-again; TLDRGraph validates the direct artifacts against the current source
+Each final artifact must use the reported source hash. Run the command that
+reported the status again; TLDRGraph validates the direct artifacts against the current source
 inventory and generates the visualizer.
 
 ## Evidence
@@ -62,4 +63,4 @@ step with both paths hidden as references.
 feature index metadata. Each worker-owned workflow uses schema
 `tldrgraph/feature-workflow@4`, generator `feature-workflow-subagent@4`, the
 reported source hash, and all status and evidence. Continue until `tldrgraph
-init` reports `done`, then run `tldrgraph ui --serve`.
+init` or `tldrgraph refresh` reports `done`, then run `tldrgraph ui --serve`.

@@ -29,6 +29,10 @@ hash. The active agent identifies feature outcomes and immediately writes the v4
 source-reading subagent; each worker writes only its own v4 workflow file. Run
 `tldrgraph init` again to validate the artifacts and generate the explorer.
 
+When repository source changes after a catalog exists, run `tldrgraph refresh`
+instead. It performs the same validation and generation flow while making the
+update intent explicit.
+
 The final artifacts are:
 
 - `.tldrgraph/features.yaml`
@@ -48,10 +52,11 @@ draws each proven workflow, and opens cited source ranges from the repository.
 
 ```text
 tldrgraph init [PATH] [--json]
+tldrgraph refresh [PATH] [--json]
 tldrgraph ui [--path PATH] [--serve] [--port PORT] [--open|--no-open]
 tldrgraph install [--path PATH] [--all-agents]
 ```
 
 Version 0.3 is a breaking, workflow-only release. Earlier graph-based commands
-and v1/v2 generated artifacts are not supported; run `tldrgraph init` to produce
-the v3 catalog.
+and v1/v2 generated artifacts are not supported; run `tldrgraph init` to create
+the current catalog, then `tldrgraph refresh` after later source changes.

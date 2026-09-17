@@ -3,7 +3,8 @@
 TLDRGraph generates a source-backed feature catalog through a coding-agent file
 handoff and renders it as a standalone Workflow Explorer.
 
-- `tldrgraph init`: create, validate, or refresh the workflow catalog.
+- `tldrgraph init`: create and validate the workflow catalog.
+- `tldrgraph refresh`: update an existing workflow catalog after source changes.
 - `tldrgraph ui --serve`: explore workflows with live source evidence.
 - `tldrgraph install`: install the agent workflow and contract.
 

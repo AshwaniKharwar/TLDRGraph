@@ -1,4 +1,4 @@
-from tldrgraph.agent_commands import COMMAND_BODY, INSTRUCTIONS_BODY
+from tldrgraph.agent_commands import COMMAND_BODY, INSTRUCTIONS_BODY, REFRESH_COMMAND_BODY
 from tldrgraph.installer import ensure_gitignore, install_agent_rules
 
 
@@ -12,6 +12,9 @@ def test_installer_writes_graph_free_contract_and_rules(tmp_path):
     assert "graphify" not in INSTRUCTIONS_BODY.lower()
     assert "each indexed feature" in INSTRUCTIONS_BODY
     assert "Never assign the entire catalog to one subagent" in COMMAND_BODY
+    refresh_skill = tmp_path / ".agents/skills/tldrgraph-refresh/SKILL.md"
+    assert refresh_skill.read_text(encoding="utf-8").endswith(REFRESH_COMMAND_BODY)
+    assert "Codex (refresh command)" in result
     assert "contract" in result
 
 

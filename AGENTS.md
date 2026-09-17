@@ -4,12 +4,13 @@
 TLDRGraph builds a source-backed feature and workflow catalog for this repository.
 It does not build an architecture graph, infer workflows heuristically, or run AI itself.
 
-Run `tldrgraph init`. If it returns `needs_feature_workflows`, identify feature
-outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
+Run `tldrgraph init` to create a catalog. Run `tldrgraph refresh` when an
+existing catalog needs updating after source changes. If either command returns
+`needs_feature_workflows`, identify feature outcomes and immediately write the `.tldrgraph/features.yaml` v4 catalog index
 with the reported `source_hash`. Then spawn one fresh source-reading subagent
 for each indexed feature. Each worker writes only its assigned complete
 `.tldrgraph/workflows/<feature_id>.yaml` v4 file; it never edits `features.yaml`
-or another feature's workflow. Run `tldrgraph init` again to validate the direct
+or another feature's workflow. Run the same command again to validate the direct
 artifacts and generate the explorer.
 
 Every capability and workflow step must cite a verified repository-relative

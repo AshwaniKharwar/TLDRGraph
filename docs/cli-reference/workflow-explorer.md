@@ -6,6 +6,11 @@ Inventories source files, validates the direct catalog index and independently
 authored workflow files, and generates the explorer when every indexed feature
 has a valid workflow.
 
+## `tldrgraph refresh [PATH] [--json]`
+
+Runs the same pipeline as `init` for an existing catalog. Use it after repository
+source changes so the current catalog and explorer are validated or regenerated.
+
 ## `tldrgraph ui`
 
 Generates standalone HTML. Use `--serve` for live source access, `--port` to
